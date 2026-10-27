@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      # Postgres with pgvector for DB tests (used from Phase 2 on via TEST_DATABASE_URL).
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: needgrid
+          POSTGRES_PASSWORD: needgrid
+          POSTGRES_DB: needgrid_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U needgrid -d needgrid_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://needgrid:needgrid@localhost:5432/needgrid_test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6 # version comes from "packageManager" in package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm format:check
+      - run: pnpm test
+      - name: Build API
+        run: pnpm --filter @needgrid/api build
