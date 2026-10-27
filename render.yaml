@@ -1,0 +1,91 @@
+# Render Blueprint for NeedGrid: API (web service) + web app (static site).
+# Secrets use `sync: false`: Render asks for their values when the Blueprint is first applied.
+# Migrations run in the API build command (preDeployCommand may not be available on the free plan).
+services:
+  - type: web
+    name: needgrid-api
+    runtime: node
+    plan: free # switch to starter on Nov 11 (stays awake during judging)
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @needgrid/api build && pnpm --filter @needgrid/api db:migrate
+    startCommand: pnpm --filter @needgrid/api start
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    buildFilter:
+      paths:
+        - apps/api/**
+        - packages/shared/**
+        - package.json
+        - pnpm-lock.yaml
+        - pnpm-workspace.yaml
+        - render.yaml
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: PAYPAL_ENV
+        value: sandbox
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: GEMINI_EMBEDDING_MODEL
+        value: gemini-embedding-001
+      - key: STAFF_DEMO_KEY
+        value: harbor-demo-2026
+      - key: DATABASE_URL
+        sync: false
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      - key: WEB_ORIGIN
+        sync: false # e.g. https://needgrid-web.onrender.com
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: GOOGLE_GENERATIVE_AI_API_KEY
+        sync: false
+      - key: CHANNEL3_API_KEY
+        sync: false
+      - key: DASHBOARD_HMAC_SECRET
+        generateValue: true
+      - key: RESEND_API_KEY
+        sync: false
+
+  - type: web
+    name: needgrid-web
+    runtime: static
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @needgrid/web build
+    staticPublishPath: apps/web/dist
+    autoDeployTrigger: commit
+    buildFilter:
+      paths:
+        - apps/web/**
+        - packages/shared/**
+        - package.json
+        - pnpm-lock.yaml
+        - pnpm-workspace.yaml
+        - render.yaml
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: VITE_USE_MOCKS
+        value: "false"
+      - key: VITE_DEMO_STAFF_KEY
+        value: harbor-demo-2026
+      - key: VITE_API_URL
+        sync: false # e.g. https://needgrid-api.onrender.com
+      - key: VITE_PAYPAL_CLIENT_ID
+        sync: false
+      - key: VITE_CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: VITE_CLOUDINARY_UPLOAD_PRESET
+        sync: false
+      - key: VITE_AG_STUDIO_LICENSE
+        sync: false

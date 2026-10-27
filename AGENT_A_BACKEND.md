@@ -3,6 +3,7 @@
 > **Give this file to your coding agent as its main instruction.** Also read `NEEDGRID_DEV_PLAN.md` for product context.
 > If the two disagree: this file wins on *implementation details*, the plan wins on *scope and priorities*.
 > Sibling briefs: `AGENT_B_AI_DATA.md` (AI & Data), `AGENT_C_FRONTEND.md` (Frontend & Demo). Sections 2–4 are identical in all three files.
+> **Work order:** follow `AGENT_A_PHASES.md`. It splits the tasks in §10 into phases, each ending with a SYNC phase (merge to `main` + announce what B and C must pull).
 
 ---
 
