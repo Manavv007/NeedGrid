@@ -356,7 +356,7 @@ export async function buildTimeline(need: NeedRow, ex: Executor = db): Promise<T
 }
 
 /** Latest delivery that donors may see (passed the AI check or was confirmed by staff). */
-async function publicDelivery(need: NeedRow, ex: Executor): Promise<DeliveryPublic | null> {
+export async function publicDelivery(need: NeedRow, ex: Executor = db): Promise<DeliveryPublic | null> {
   if (need.status !== "delivered") return null;
   const [d] = await ex
     .select()

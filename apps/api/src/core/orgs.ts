@@ -20,3 +20,12 @@ export async function findOrgByStaffKeyHash(hash: string): Promise<StaffOrg | nu
     .limit(1);
   return rows[0] ?? null;
 }
+
+export async function findOrgIdBySlug(slug: string): Promise<string | null> {
+  const [row] = await db
+    .select({ id: organizations.id })
+    .from(organizations)
+    .where(eq(organizations.slug, slug))
+    .limit(1);
+  return row?.id ?? null;
+}

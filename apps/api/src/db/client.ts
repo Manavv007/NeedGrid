@@ -14,7 +14,9 @@ export const pool = new pg.Pool({
   connectionString: normalizePgUrl(env.DATABASE_URL),
   max: 10,
   idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 10_000,
+  // Under a burst of donors on one tile, checkouts queue on the need's row lock while holding a
+  // connection. Waiting for a free connection is better than failing a donor with a 500.
+  connectionTimeoutMillis: 30_000,
 });
 
 // An idle client error (e.g. Neon closing an idle connection) must not crash the process.
