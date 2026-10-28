@@ -27,6 +27,7 @@ export default defineConfig({
       PAYPAL_ENV: "sandbox",
       PAYPAL_CLIENT_ID: "test-client-id",
       PAYPAL_CLIENT_SECRET: "test-client-secret",
+      PAYPAL_WEBHOOK_ID: "WH-TEST-WEBHOOK-ID",
       WEB_ORIGIN: "http://localhost:5173",
       CLOUDINARY_CLOUD_NAME: "demo",
       LOG_LEVEL: "silent",
