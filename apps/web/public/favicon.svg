@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <title>NeedGrid</title>
+  <rect width="32" height="32" rx="7" fill="#0F766E"/>
+  <rect x="7" y="7" width="8.5" height="8.5" rx="1.5" fill="#FFFFFF"/>
+  <rect x="16.5" y="7" width="8.5" height="8.5" rx="1.5" fill="#99D5CF"/>
+  <rect x="7" y="16.5" width="8.5" height="8.5" rx="1.5" fill="#99D5CF"/>
+  <rect x="16.5" y="16.5" width="8.5" height="8.5" rx="1.5" fill="#FFFFFF"/>
+</svg>

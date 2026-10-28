@@ -1,0 +1,52 @@
+import "@fontsource-variable/inter";
+import "./styles/globals.css";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { RouterProvider } from "react-router/dom";
+import { AppErrorBoundary } from "@/components/AppErrorBoundary";
+import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { env, envResult } from "@/env";
+import { createQueryClient } from "@/lib/queryClient";
+import { setUnauthorizedHandler, STAFF_LOGIN_PATH } from "@/lib/unauthorized";
+import { ConfigErrorScreen } from "@/pages/ConfigErrorScreen";
+import { createAppRouter } from "@/router";
+
+async function startMocks(): Promise<void> {
+  // Dynamic import behind the env check: mock code is not in the bundle when mocks are off.
+  const { worker } = await import("./mocks/browser");
+  await worker.start({ onUnhandledRequest: "bypass" });
+}
+
+async function main(): Promise<void> {
+  const container = document.getElementById("root");
+  if (!container) throw new Error("#root element missing from index.html");
+  const root = createRoot(container);
+
+  if (!envResult.ok) {
+    root.render(<ConfigErrorScreen problems={envResult.problems} />);
+    return;
+  }
+
+  // Compile-time check first so Vite drops the mock import (and its chunk) from builds with mocks off.
+  if (import.meta.env.VITE_USE_MOCKS === "true" && env.VITE_USE_MOCKS) await startMocks();
+
+  const router = createAppRouter();
+  setUnauthorizedHandler(() => void router.navigate(STAFF_LOGIN_PATH, { replace: true }));
+
+  root.render(
+    <StrictMode>
+      <AppErrorBoundary>
+        <QueryClientProvider client={createQueryClient()}>
+          <TooltipProvider>
+            <RouterProvider router={router} />
+          </TooltipProvider>
+          <Toaster position="top-center" />
+        </QueryClientProvider>
+      </AppErrorBoundary>
+    </StrictMode>,
+  );
+}
+
+void main();
