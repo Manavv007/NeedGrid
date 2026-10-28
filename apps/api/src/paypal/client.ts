@@ -136,6 +136,8 @@ export function resetPayPalTokenCache(): void {
 
 export interface PayPalRequestOptions {
   body?: unknown;
+  /** Pre-serialised JSON body, sent byte-for-byte (webhook verification needs the exact event bytes). */
+  rawBody?: string;
   /** Required for POST: makes retries (ours and the caller's) idempotent on PayPal's side. */
   requestId?: string;
   query?: Record<string, string>;
@@ -167,7 +169,7 @@ export async function paypalFetch<T = unknown>(
       res = await fetch(url, {
         method,
         headers,
-        body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+        body: opts.rawBody ?? (opts.body === undefined ? undefined : JSON.stringify(opts.body)),
         signal: AbortSignal.timeout(paypalClientConfig.timeoutMs),
       });
     } catch (err) {

@@ -12,6 +12,7 @@ import { donationRoutes } from "./routes/donations";
 import { publicRoutes } from "./routes/public";
 import { staffRoutes } from "./routes/staff";
 import { streamRoutes } from "./routes/stream";
+import { paypalWebhookRoutes } from "./webhooks/paypal";
 
 export interface BuildAppOptions {
   /** Pino logger on/off (tests pass false). */
@@ -61,6 +62,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(publicRoutes);
   await app.register(streamRoutes, { pingMs: opts.ssePingMs });
   await app.register(donationRoutes);
+  await app.register(paypalWebhookRoutes);
   await app.register(staffRoutes);
   await app.register(aiPlugin);
 
