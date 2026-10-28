@@ -182,3 +182,42 @@ Format of an entry: **problem** → what we saw → fix / what to do.
 - `packages/shared` changes are additive only, bump the version, add a CHANGELOG line, announce in the SYNC message.
 - B writes money/status only through `apps/api/src/core` functions. If you need a new one, ask A in `HANDOFF.md`.
 - Every phase ends with a SYNC message (template in `AGENT_A_PHASES.md`): what's new, migration yes/no, new env vars, who is unblocked.
+
+## 12. B: AI SDK, Channel3, B's code in this repo (checked against installed packages, Oct 28)
+
+- **Channel3 SDK (`@channel3/sdk` 4.5.0): verified with live calls on Oct 28.** `import { Channel3 } from "@channel3/sdk"`,
+  `new Channel3({ apiKey })` (the package README's `Channel3Client` is stale; the Channel3 skill is right). Request fields are
+  **snake_case** (`product_id`, `page_token`). `products.search()` returns a `Page`: products are in `.data`; `limit` max 30.
+  `products.retrieve({ product_id })` is free; `products.lookup({ url })` takes 2–10 s and 422s on non-product pages.
+  `Product.category` is an object, not a string. Price lives on `offers[].price.{price, currency}` (dollars, e.g. 39.77),
+  availability `"InStock" | "OutOfStock"`. Search only returns in-stock offers by default (`filters.availability`).
+  Errors: `Channel3Error` (`.statusCode`), `Channel3TimeoutError`. All B code goes through `channel3/` → `channel3Gateway()`;
+  tests use `setChannel3Gateway(new FakeChannel3())` from `channel3/__fakes__.ts`.
+- **Channel3 data quality (live "pampers size 4 diapers" search):** 5 of 8 results had **no count in the title**
+  (e.g. "Swaddlers Diapers", "Pampers Cruisers 360 Diapers") and no count in `key_features`; prices ranged $14.99–$70.26 for
+  the "same" item, i.e. very different pack sizes. Offer domains can be regional (`es.cvs.com`). `variants` came back empty;
+  `structured_attributes` has `diaper-size: ["4"]` but no count. → Ranking must not trust the cheapest unit price when
+  `packSize` is null (the $14.99 one is a small pack); let the LLM read title + description, and prefer options with a parsed
+  `packSize`. Offer URLs are `buy.trychannel3.com` affiliate redirects and are short-lived (refresh before showing a buy link).
+- **Live check:** `pnpm --filter @needgrid/api exec tsx --env-file=.env src/channel3/smoke.ts "<query>"` (1 search credit).
+- **Installing Channel3 skill:** `npx skills add channel3-ai/skills --skill channel3-api -y` copies it into ~9 agent folders
+  (`.claude`, `.windsurf`, …) plus `.agents/` and `skills-lock.json` at the root. We kept only `.kiro/skills` and `.agents/skills`.
+- **AI SDK is `ai@7` / `@ai-sdk/google@4`.** Multi-step is `stopWhen: isStepCount(n)` (`stepCountIs` is still exported),
+  there is no `maxSteps`. Tools use `inputSchema`. `Output` and `generateObject` both exist. Test mocks come from `ai/test`:
+  `MockLanguageModelV4`, `MockEmbeddingModelV4` (V3 also exported). Check Context7 for the v7 call shapes before coding.
+- **Imports have no `.js` extension** (`moduleResolution: Bundler`, e.g. `from "./needs"`). The brief's
+  `vi.mock("../core/index.js")` should be `vi.mock("../core")`.
+- **Import cycle risk:** `core/needs.ts` imports `embedNeedText` from `ai/index.ts`. Keep `ai/index.ts` free of top-level
+  imports from `core` (import only `models`/`untrusted`); routes and tools can import `core` freely.
+- **Helpers B uses:** `getStaffOrg(req)` from `plugins/staffAuth` (after `preHandler: app.requireStaff`), `HttpError`,
+  `upstream()`, `invalidState()`, `notFound()`, `sendNdjson`, `assertCloudinaryUrl` from `lib/http`, `hashStaffKey` from
+  `lib/crypto` (seed must use it for `staff_key_hash`). DB tests: `test/db.ts` (`hasTestDb`, `migrateTestDb`, `truncateAll`)
+  and `test/fixtures.ts`.
+- **Seed constraints from the schema:** `donations.impact_token` is NOT NULL + unique, `donations.org_id` is required,
+  `source = "seed"`; `allocations.amount_cents <> 0`; at most one `approved` purchase per need; `check:money` warns when an
+  open/funded need is over target. `core.listRecordedDonations` excludes `source = "seed"`, so seed history never shows up
+  as a reconcile mismatch.
+- **`DASHBOARD_HMAC_SECRET` is our own secret, not from any service.** Locally: generate 32 random bytes as hex. On Render it
+  is `generateValue: true` (Render creates it), so production donation keys differ from local ones. That's fine: they're only
+  join keys between datasets. Keep it stable once set; rotating it changes every `donationKey`.
+- **`apps/web` doesn't exist yet on Oct 28** (C-1 not merged). Dashboard work starts standalone if it still isn't there by Oct 31.
