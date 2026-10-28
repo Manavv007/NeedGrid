@@ -2,39 +2,41 @@
  * The ONLY write API that B's code (apps/api/src/ai, scripts/seed) may use.
  * Signatures are a contract (AGENT_A_BACKEND.md §7.2): don't change them without telling B.
  *
- * Status (Phase 1): every function is a stub that throws "not implemented". B codes against
- * these signatures and mocks them in tests. A fills them in:
- *   Phase 2 (Wed Oct 28): getNeedCard(s), listDonatableNeeds, getNextMostUrgentNeed, setNeedEmbedding
- *   Phase 3 (Thu Oct 29): publishNeedUpdated
- *   Phase 6 (Mon Nov 2):  createProposedPurchase
- *   Phase 7 (Tue Nov 3):  recordDelivery, confirmDelivery, proposeAction, listPayPalTransactions, listRecordedDonations
+ * Status:
+ *   Implemented (Phase 2): getNeedCard, getNeedCards, listDonatableNeeds, getNextMostUrgentNeed,
+ *                          setNeedEmbedding, publishNeedUpdated (in-process fan-out; SSE route in Phase 3)
+ *   Stubs that throw "not implemented" until:
+ *     Phase 6 (Mon Nov 2): createProposedPurchase
+ *     Phase 7 (Tue Nov 3): recordDelivery, confirmDelivery, proposeAction, listPayPalTransactions, listRecordedDonations
  */
 import type { AgentAction, DeliveryView, MoneyTool, NeedCard, PurchaseOffer, PurchaseView } from "@needgrid/shared";
+import * as needsCore from "./needs";
 
 function notImplemented(name: string): never {
   throw new Error(`not implemented: core.${name}`);
 }
 
-export async function getNeedCard(_needId: string): Promise<NeedCard | null> {
-  return notImplemented("getNeedCard");
+export async function getNeedCard(needId: string): Promise<NeedCard | null> {
+  return needsCore.getNeedCard(needId);
 }
 
-export async function getNeedCards(_needIds: string[]): Promise<NeedCard[]> {
-  return notImplemented("getNeedCards");
+/** Cards in the same order as `needIds`; unknown ids are skipped. */
+export async function getNeedCards(needIds: string[]): Promise<NeedCard[]> {
+  return needsCore.getNeedCards(needIds);
 }
 
 /** Open/topping_up needs with remainingCents > 0, most urgent first. orgId undefined = all orgs. */
-export async function listDonatableNeeds(_opts: { orgId?: string; limit?: number }): Promise<NeedCard[]> {
-  return notImplemented("listDonatableNeeds");
+export async function listDonatableNeeds(opts: { orgId?: string; limit?: number }): Promise<NeedCard[]> {
+  return needsCore.listDonatableNeeds({ orgId: opts.orgId, limit: opts.limit });
 }
 
-export async function getNextMostUrgentNeed(_orgId: string, _excludeNeedId?: string): Promise<NeedCard | null> {
-  return notImplemented("getNextMostUrgentNeed");
+export async function getNextMostUrgentNeed(orgId: string, excludeNeedId?: string): Promise<NeedCard | null> {
+  return needsCore.getNextMostUrgentNeed(orgId, excludeNeedId);
 }
 
-/** 768 dimensions. */
-export async function setNeedEmbedding(_needId: string, _embedding: number[]): Promise<void> {
-  return notImplemented("setNeedEmbedding");
+/** 768 dimensions; throws on any other size or non-finite values. */
+export async function setNeedEmbedding(needId: string, embedding: number[]): Promise<void> {
+  return needsCore.setNeedEmbedding(needId, embedding);
 }
 
 /** Inserts a purchases row (status proposed) and marks older proposed rows for that need `superseded`. Need must be `funded`. Computes newTargetCents itself. */
@@ -109,9 +111,9 @@ export async function listRecordedDonations(_input: { orgId: string; start: Date
   return notImplemented("listRecordedDonations");
 }
 
-/** SSE fan-out of the need's current NeedCard to every open tile wall. */
-export async function publishNeedUpdated(_needId: string): Promise<void> {
-  return notImplemented("publishNeedUpdated");
+/** SSE fan-out of the need's current NeedCard to every open tile wall. Never throws. */
+export async function publishNeedUpdated(needId: string): Promise<void> {
+  return needsCore.publishNeedUpdated(needId);
 }
 
 export { findOrgByStaffKeyHash } from "./orgs";
