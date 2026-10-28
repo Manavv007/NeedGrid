@@ -200,6 +200,9 @@ Format of an entry: **problem** → what we saw → fix / what to do.
   `packSize` is null (the $14.99 one is a small pack); let the LLM read title + description, and prefer options with a parsed
   `packSize`. Offer URLs are `buy.trychannel3.com` affiliate redirects and are short-lived (refresh before showing a buy link).
 - **Live check:** `pnpm --filter @needgrid/api exec tsx --env-file=.env src/channel3/smoke.ts "<query>"` (1 search credit).
+- **CI also runs `pnpm format:check` (Prettier).** The first Channel3 PR failed CI on formatting alone because only
+  typecheck/lint/test were run locally. → Before every push run `pnpm format:check` (fix with `pnpm format` or
+  `pnpm exec prettier --write <files>`), alongside typecheck, lint and test.
 - **Installing Channel3 skill:** `npx skills add channel3-ai/skills --skill channel3-api -y` copies it into ~9 agent folders
   (`.claude`, `.windsurf`, …) plus `.agents/` and `skills-lock.json` at the root. We kept only `.kiro/skills` and `.agents/skills`.
 - **AI SDK is `ai@7` / `@ai-sdk/google@4`.** Multi-step is `stopWhen: isStepCount(n)` (`stepCountIs` is still exported),

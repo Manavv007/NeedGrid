@@ -148,7 +148,10 @@ describe("productOffers", () => {
       ["a.com", 4000, true],
       ["b.com", 2000, false],
     ]);
-    expect(offers[0]).toMatchObject({ channel3Id: "prod_diapers4", imageUrl: "https://images.example.com/diapers.jpg" });
+    expect(offers[0]).toMatchObject({
+      channel3Id: "prod_diapers4",
+      imageUrl: "https://images.example.com/diapers.jpg",
+    });
   });
 });
 

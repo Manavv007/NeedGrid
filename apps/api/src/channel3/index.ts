@@ -14,6 +14,9 @@ const MAX_QUERY_CHARS = 200;
 const MAX_URL_CHARS = 2048;
 const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 30; // Channel3's cap
+/** Control characters are stripped from untrusted query text. */
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;
 
 /** Search results cost credits and are suggestions only: 24 h. */
 const searchCache = new TtlCache<ProductSnapshot[]>(500, 24 * HOUR);
@@ -34,8 +37,7 @@ export function clearChannel3Cache(): void {
 
 /** Text search → up to `limit` (default 8) normalised, de-duplicated products. Products without a USD offer are dropped. */
 export async function searchProducts(query: string, opts: { limit?: number } = {}): Promise<ProductSnapshot[]> {
-  // eslint-disable-next-line no-control-regex -- strip control characters from untrusted text
-  const q = query.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, MAX_QUERY_CHARS);
+  const q = query.replace(CONTROL_CHARS, " ").trim().slice(0, MAX_QUERY_CHARS);
   if (q.length === 0) return [];
   const limit = Math.min(Math.max(Math.trunc(opts.limit ?? DEFAULT_LIMIT), 1), MAX_LIMIT);
   return searchCache.getOrLoad(`${normalizeQuery(q)}|${limit}`, async () => {

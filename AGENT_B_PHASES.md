@@ -24,7 +24,7 @@ Use the same daily sync slot as A (after the standup) so A and C know when to pu
    Before the PR, catch up again with `git merge origin/main` (never rebase or force-push).
 2. Verify locally (check `$LASTEXITCODE`, not red stderr):
    ```powershell
-   pnpm typecheck; pnpm lint; pnpm test
+   pnpm format:check; pnpm typecheck; pnpm lint; pnpm test   # CI runs all four; format:check first (fix: pnpm format)
    pnpm --filter @needgrid/api evals <feature>       # only if a prompt changed: paste before/after numbers in the PR
    pnpm --filter @needgrid/api check:money           # after any seed run
    ```
