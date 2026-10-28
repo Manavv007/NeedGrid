@@ -6,7 +6,7 @@ services:
     name: needgrid-api
     runtime: node
     plan: free # switch to starter on Nov 11 (stays awake during judging)
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @needgrid/api build && pnpm --filter @needgrid/api db:migrate
+    buildCommand: corepack enable && pnpm install --frozen-lockfile --prod=false && pnpm --filter @needgrid/api build && pnpm --filter @needgrid/api db:migrate
     startCommand: pnpm --filter @needgrid/api start
     healthCheckPath: /api/health
     autoDeployTrigger: commit
@@ -57,7 +57,7 @@ services:
   - type: web
     name: needgrid-web
     runtime: static
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @needgrid/web build
+    buildCommand: corepack enable && pnpm install --frozen-lockfile --prod=false && pnpm --filter @needgrid/web build
     staticPublishPath: apps/web/dist
     autoDeployTrigger: commit
     buildFilter:
