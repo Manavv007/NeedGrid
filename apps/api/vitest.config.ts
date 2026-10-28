@@ -16,9 +16,11 @@ export default defineConfig({
     testTimeout: 30_000,
     hookTimeout: 60_000,
     // Tests must never need real keys. Minimal env so env.ts parses.
+    // The app's own db client (src/db/client.ts) points at the TEST database when one is configured,
+    // so route tests exercise real SQL; otherwise at a dummy URL that is never connected to.
     env: {
       NODE_ENV: "test",
-      DATABASE_URL: "postgres://test:test@localhost:5432/needgrid_test",
+      DATABASE_URL: testDbUrl || "postgres://test:test@localhost:5432/needgrid_test",
       TEST_DATABASE_URL: testDbUrl,
       GUARD_DEV_DATABASE_URL: dotenv.DATABASE_URL ?? "",
       PAYPAL_ENV: "sandbox",

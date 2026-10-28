@@ -8,6 +8,7 @@ import { errorHandlerPlugin } from "./plugins/errorHandler";
 import { rateLimitPlugin } from "./plugins/rateLimit";
 import { staffAuthPlugin, type FindOrgByStaffKeyHash } from "./plugins/staffAuth";
 import { healthRoutes } from "./routes/health";
+import { publicRoutes } from "./routes/public";
 import { staffRoutes } from "./routes/staff";
 
 export interface BuildAppOptions {
@@ -53,6 +54,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   });
 
   await app.register(healthRoutes, { pingDb: opts.deps?.pingDb ?? (() => pingDb()) });
+  await app.register(publicRoutes);
   await app.register(staffRoutes);
   await app.register(aiPlugin);
 

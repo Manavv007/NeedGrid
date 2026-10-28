@@ -49,6 +49,12 @@ export async function resetTestDb(t: TestDb): Promise<void> {
   await migrate(t.db, { migrationsFolder });
 }
 
+/** Apply any pending migrations (no-op when up to date). Cheaper than resetTestDb. */
+export async function migrateTestDb(t: TestDb): Promise<void> {
+  assertSafeTarget();
+  await migrate(t.db, { migrationsFolder });
+}
+
 /** Fast cleanup between tests: empty every table, keep the schema. */
 export async function truncateAll(t: TestDb): Promise<void> {
   await t.pool.query(
