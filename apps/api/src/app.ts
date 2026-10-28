@@ -8,12 +8,16 @@ import { errorHandlerPlugin } from "./plugins/errorHandler";
 import { rateLimitPlugin } from "./plugins/rateLimit";
 import { staffAuthPlugin, type FindOrgByStaffKeyHash } from "./plugins/staffAuth";
 import { healthRoutes } from "./routes/health";
+import { donationRoutes } from "./routes/donations";
 import { publicRoutes } from "./routes/public";
 import { staffRoutes } from "./routes/staff";
+import { streamRoutes } from "./routes/stream";
 
 export interface BuildAppOptions {
   /** Pino logger on/off (tests pass false). */
   logger?: boolean;
+  /** SSE heartbeat interval (tests shorten it). */
+  ssePingMs?: number;
   /** Injectable dependencies so tests run without a database. */
   deps?: {
     pingDb?: () => Promise<boolean>;
@@ -55,6 +59,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
 
   await app.register(healthRoutes, { pingDb: opts.deps?.pingDb ?? (() => pingDb()) });
   await app.register(publicRoutes);
+  await app.register(streamRoutes, { pingMs: opts.ssePingMs });
+  await app.register(donationRoutes);
   await app.register(staffRoutes);
   await app.register(aiPlugin);
 

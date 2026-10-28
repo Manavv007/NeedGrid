@@ -32,6 +32,12 @@ const EnvSchema = z.object({
   PAYPAL_CLIENT_ID: z.string().min(1, "PAYPAL_CLIENT_ID is required"),
   PAYPAL_CLIENT_SECRET: z.string().min(1, "PAYPAL_CLIENT_SECRET is required"),
   PAYPAL_WEBHOOK_ID: optional, // required from Phase 4 (webhooks)
+  // PayPal only accepts item category DONATION from accounts approved for donations (else 403
+  // PERMISSION_DENIED_FOR_DONATION_ITEMS). Our sandbox account isn't, so it's off by default.
+  PAYPAL_DONATION_ITEMS: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
   HOLD_SECONDS: optionalPositiveInt,
 
   WEB_ORIGIN: z.string().min(1, "WEB_ORIGIN is required (comma-separated list)"),
