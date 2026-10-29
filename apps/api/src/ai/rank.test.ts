@@ -81,6 +81,20 @@ describe("rankOptions", () => {
     expect(model.calls[0]!.temperature).toBe(0);
   });
 
+  it("hides products scored below 0.5 and shows 0.5 and above", async () => {
+    setAiModels({
+      language: scriptedModel(() =>
+        one([
+          { index: 0, fitScore: 0.49, fitReason: "Related but different" },
+          { index: 1, fitScore: 0.5, fitReason: "Acceptable" },
+          { index: 2, fitScore: 0.4, fitReason: "Baby cereal, not oats" },
+        ]),
+      ),
+    });
+    const opts = await rankOptions(need, candidates);
+    expect(opts.map((o) => o.channel3Id)).toEqual(["c1"]);
+  });
+
   it("product titles reach the model wrapped as untrusted data", async () => {
     const model = scriptedModel(() => one([{ index: 0, fitScore: 1, fitReason: "ok" }]));
     setAiModels({ language: model });
