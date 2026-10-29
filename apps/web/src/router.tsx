@@ -5,6 +5,7 @@ import { StaffLayout } from "@/components/layout/StaffLayout";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { LandingPage } from "@/pages/LandingPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
+import { OrgPage } from "@/pages/OrgPage";
 import { PlaceholderPage } from "@/pages/PlaceholderPage";
 import { RouteErrorPage } from "@/pages/RouteErrorPage";
 
@@ -19,7 +20,7 @@ export const routes: RouteObject[] = [
         Component: PublicLayout,
         children: [
           { index: true, Component: LandingPage },
-          { path: "o/:slug", element: <PlaceholderPage title="Charity page" task="C-2" /> },
+          { path: "o/:slug", Component: OrgPage },
           { path: "o/:slug/n/:needId", element: <PlaceholderPage title="Need" task="C-3" /> },
           { path: "thanks/:token", element: <PlaceholderPage title="Thank you" task="C-3" /> },
           { path: "impact/:token", element: <PlaceholderPage title="Your impact" task="C-8" /> },

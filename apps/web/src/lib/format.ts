@@ -1,4 +1,6 @@
 // Display-only formatting. Never use these results for maths.
+import type { Category } from "@needgrid/shared";
+
 export { formatUsd } from "@needgrid/shared";
 
 const usdWhole = new Intl.NumberFormat("en-US", {
@@ -13,6 +15,31 @@ const usdCents = new Intl.NumberFormat("en-US", { style: "currency", currency: "
 export function formatUsdShort(cents: number): string {
   return cents % 100 === 0 ? usdWhole.format(cents / 100) : usdCents.format(cents / 100);
 }
+
+/** Headline totals ("Raised $1,284"): whole dollars, cents dropped so a total is never overstated. */
+export function formatUsdWhole(cents: number): string {
+  return usdWhole.format(Math.floor(cents / 100));
+}
+
+/** "No donors yet", "1 donor", "6 donors". */
+export function formatDonorCount(count: number): string {
+  if (count === 0) return "No donors yet";
+  return `${count.toLocaleString("en-US")} ${count === 1 ? "donor" : "donors"}`;
+}
+
+/** Plain-English category names for donors (chips, labels). */
+export const CATEGORY_LABELS: Readonly<Record<Category, string>> = {
+  food: "Food",
+  hygiene: "Hygiene",
+  baby: "Baby",
+  clothing: "Clothing",
+  bedding: "Bedding",
+  school: "School supplies",
+  pet: "Pet supplies",
+  medical: "Medical",
+  household: "Household",
+  other: "Other",
+};
 
 /** Share of `whole` as a whole-number percentage between 0 and 100, for labels like "83%". */
 export function percentOf(part: number, whole: number): number {
@@ -32,4 +59,10 @@ export function formatShortDate(iso: string): string {
 export function formatDeadline(iso: string, now: Date = new Date()): string {
   const days = (new Date(iso).getTime() - now.getTime()) / 86_400_000;
   return days >= 0 && days < 6 ? weekday.format(new Date(iso)) : formatShortDate(iso);
+}
+
+/** "Fri" / "Nov 14" for a deadline still ahead; null when there is none or it has passed. */
+export function formatNeededBy(iso: string | null, now: Date = new Date()): string | null {
+  if (iso === null || new Date(iso).getTime() < now.getTime()) return null;
+  return formatDeadline(iso, now);
 }

@@ -4,7 +4,8 @@
  * checked too, so a contract change (or a typo here) breaks tests and the build immediately.
  *
  * Sample names and numbers come from the approved designs (Main, Landing, TileStates, ImpactPhone,
- * PurchasePlan, StaffConsole). Times are fixed ISO UTC strings around the demo week (late Oct 2026).
+ * PurchasePlan, StaffConsole). Dates are relative to the clock when this module loads (see `rel`),
+ * so deadlines stay ahead, deliveries stay in the past, and the mocks never go stale.
  */
 import {
   computeTargetCents,
@@ -24,6 +25,25 @@ import {
 } from "@needgrid/shared";
 
 // ---------- helpers ----------
+
+const MINUTE_MS = 60_000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
+
+/**
+ * The fixtures tell their story on a "story clock" that reads 12:00 UTC at the moment this module
+ * loads (the designs were drawn around noon). `rel(days, "HH:MM")` is HH:MM on the story clock,
+ * `days` days from today: `rel(1, "21:00")` is tomorrow evening (33 h from now), `rel(-7, "14:05")`
+ * a week ago, `rel(0, "09:12")` this morning (2 h 48 min ago). Every date moves together, so the
+ * order and the gaps between them never change. Keep past times today at or before "11:59".
+ */
+const STORY_TODAY = Date.now() - 12 * 60 * MINUTE_MS;
+
+function rel(days: number, time: string): string {
+  const match = /^(\d{2}):(\d{2})$/.exec(time);
+  if (!match) throw new Error(`Mock fixture time must be "HH:MM", got "${time}"`);
+  const minutes = Number(match[1]) * 60 + Number(match[2]);
+  return new Date(STORY_TODAY + days * DAY_MS + minutes * MINUTE_MS).toISOString();
+}
 
 /** Mock images live in public/mock/. The schemas need absolute URLs, so build them from this page's origin. */
 const ORIGIN = typeof window === "undefined" ? "http://localhost:5173" : window.location.origin;
@@ -191,9 +211,9 @@ const NEED_SEEDS: NeedSeed[] = [
         image: "baby",
       },
     ],
-    deadlineAt: "2026-10-30T21:00:00.000Z",
-    createdAt: "2026-10-22T14:05:00.000Z",
-    updatedAt: "2026-10-28T18:20:00.000Z",
+    deadlineAt: rel(1, "21:00"),
+    createdAt: rel(-7, "14:05"),
+    updatedAt: rel(-1, "18:20"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000102",
@@ -216,9 +236,9 @@ const NEED_SEEDS: NeedSeed[] = [
       packSize: null,
       image: "baby",
     },
-    deadlineAt: "2026-10-31T21:00:00.000Z",
-    createdAt: "2026-10-22T14:06:00.000Z",
-    updatedAt: "2026-10-29T09:12:00.000Z",
+    deadlineAt: rel(2, "21:00"),
+    createdAt: rel(-7, "14:06"),
+    updatedAt: rel(0, "09:12"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000103",
@@ -241,9 +261,9 @@ const NEED_SEEDS: NeedSeed[] = [
       packSize: 72,
       image: "baby",
     },
-    deadlineAt: "2026-11-02T21:00:00.000Z",
-    createdAt: "2026-10-22T14:07:00.000Z",
-    updatedAt: "2026-10-27T16:40:00.000Z",
+    deadlineAt: rel(4, "21:00"),
+    createdAt: rel(-7, "14:07"),
+    updatedAt: rel(-2, "16:40"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000104",
@@ -266,9 +286,9 @@ const NEED_SEEDS: NeedSeed[] = [
       packSize: null,
       image: "food",
     },
-    deadlineAt: "2026-11-03T21:00:00.000Z",
-    createdAt: "2026-10-23T10:15:00.000Z",
-    updatedAt: "2026-10-29T08:55:00.000Z",
+    deadlineAt: rel(5, "21:00"),
+    createdAt: rel(-6, "10:15"),
+    updatedAt: rel(0, "08:55"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000105",
@@ -291,9 +311,9 @@ const NEED_SEEDS: NeedSeed[] = [
       packSize: null,
       image: null,
     },
-    deadlineAt: "2026-11-14T21:00:00.000Z",
-    createdAt: "2026-10-23T10:16:00.000Z",
-    updatedAt: "2026-10-26T12:00:00.000Z",
+    deadlineAt: rel(16, "21:00"),
+    createdAt: rel(-6, "10:16"),
+    updatedAt: rel(-3, "12:00"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000106",
@@ -316,9 +336,9 @@ const NEED_SEEDS: NeedSeed[] = [
       packSize: null,
       image: "hygiene",
     },
-    deadlineAt: "2026-11-20T21:00:00.000Z",
-    createdAt: "2026-10-23T10:17:00.000Z",
-    updatedAt: "2026-10-25T19:30:00.000Z",
+    deadlineAt: rel(22, "21:00"),
+    createdAt: rel(-6, "10:17"),
+    updatedAt: rel(-4, "19:30"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000107",
@@ -341,9 +361,9 @@ const NEED_SEEDS: NeedSeed[] = [
       packSize: null,
       image: "food",
     },
-    deadlineAt: "2026-11-25T21:00:00.000Z",
-    createdAt: "2026-10-24T09:00:00.000Z",
-    updatedAt: "2026-10-24T09:00:00.000Z",
+    deadlineAt: rel(27, "21:00"),
+    createdAt: rel(-5, "09:00"),
+    updatedAt: rel(-5, "09:00"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000108",
@@ -368,10 +388,10 @@ const NEED_SEEDS: NeedSeed[] = [
       image: "food",
     },
     deadlineAt: null,
-    createdAt: "2026-10-21T11:00:00.000Z",
-    fundedAt: "2026-10-27T15:10:00.000Z",
-    approvedAt: "2026-10-28T10:30:00.000Z",
-    updatedAt: "2026-10-28T10:30:00.000Z",
+    createdAt: rel(-8, "11:00"),
+    fundedAt: rel(-2, "15:10"),
+    approvedAt: rel(-1, "10:30"),
+    updatedAt: rel(-1, "10:30"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000109",
@@ -395,9 +415,9 @@ const NEED_SEEDS: NeedSeed[] = [
       image: "hygiene",
     },
     deadlineAt: null,
-    createdAt: "2026-10-20T13:00:00.000Z",
-    fundedAt: "2026-10-28T17:45:00.000Z",
-    updatedAt: "2026-10-28T17:45:00.000Z",
+    createdAt: rel(-9, "13:00"),
+    fundedAt: rel(-1, "17:45"),
+    updatedAt: rel(-1, "17:45"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000110",
@@ -421,9 +441,9 @@ const NEED_SEEDS: NeedSeed[] = [
       image: "household",
     },
     deadlineAt: null,
-    createdAt: "2026-10-19T09:30:00.000Z",
-    fundedAt: "2026-10-29T08:40:00.000Z",
-    updatedAt: "2026-10-29T08:40:00.000Z",
+    createdAt: rel(-10, "09:30"),
+    fundedAt: rel(0, "08:40"),
+    updatedAt: rel(0, "08:40"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000111",
@@ -447,12 +467,12 @@ const NEED_SEEDS: NeedSeed[] = [
       image: "clothing",
     },
     deadlineAt: null,
-    createdAt: "2026-10-18T10:00:00.000Z",
-    fundedAt: "2026-10-25T20:15:00.000Z",
-    approvedAt: "2026-10-26T14:00:00.000Z",
-    orderedAt: "2026-10-26T14:20:00.000Z",
+    createdAt: rel(-11, "10:00"),
+    fundedAt: rel(-4, "20:15"),
+    approvedAt: rel(-3, "14:00"),
+    orderedAt: rel(-3, "14:20"),
     orderRef: "TGT-4417-2290",
-    updatedAt: "2026-10-26T14:20:00.000Z",
+    updatedAt: rel(-3, "14:20"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000112",
@@ -476,19 +496,18 @@ const NEED_SEEDS: NeedSeed[] = [
       image: "baby",
     },
     deadlineAt: null,
-    createdAt: "2026-10-15T12:00:00.000Z",
-    fundedAt: "2026-10-20T15:42:00.000Z",
-    approvedAt: "2026-10-21T09:00:00.000Z",
-    orderedAt: "2026-10-21T09:15:00.000Z",
+    createdAt: rel(-14, "12:00"),
+    fundedAt: rel(-9, "15:42"),
+    approvedAt: rel(-8, "09:00"),
+    orderedAt: rel(-8, "09:15"),
     orderRef: "WM-2000-118-5521",
-    deliveredAt: "2026-10-27T15:30:00.000Z",
+    deliveredAt: rel(-2, "15:30"),
     delivery: {
-      message:
-        "They arrived Tuesday morning and were on the shelf by lunch. Thank you for keeping 30 families covered this week.",
+      message: "They were on the shelf by lunch the day they arrived. Thank you for keeping 30 families in diapers.",
       aiNotes: "Two packs of Pampers Swaddlers size 3 on a shelf. Matches the posted product and quantity.",
       matchScore: 0.93,
     },
-    updatedAt: "2026-10-27T15:30:00.000Z",
+    updatedAt: rel(-2, "15:30"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000113",
@@ -512,8 +531,8 @@ const NEED_SEEDS: NeedSeed[] = [
       image: "hygiene",
     },
     deadlineAt: null,
-    createdAt: "2026-10-29T08:00:00.000Z",
-    updatedAt: "2026-10-29T08:00:00.000Z",
+    createdAt: rel(0, "08:00"),
+    updatedAt: rel(0, "08:00"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000114",
@@ -537,9 +556,9 @@ const NEED_SEEDS: NeedSeed[] = [
       image: "household",
     },
     deadlineAt: null,
-    createdAt: "2026-10-16T09:00:00.000Z",
-    closedAt: "2026-10-22T16:00:00.000Z",
-    updatedAt: "2026-10-22T16:00:00.000Z",
+    createdAt: rel(-13, "09:00"),
+    closedAt: rel(-7, "16:00"),
+    updatedAt: rel(-7, "16:00"),
   },
 
   // ----- Second Chance Paws (12) -----
@@ -564,9 +583,9 @@ const NEED_SEEDS: NeedSeed[] = [
       packSize: null,
       image: "pet",
     },
-    deadlineAt: "2026-10-31T22:00:00.000Z",
-    createdAt: "2026-10-23T15:00:00.000Z",
-    updatedAt: "2026-10-28T21:10:00.000Z",
+    deadlineAt: rel(2, "22:00"),
+    createdAt: rel(-6, "15:00"),
+    updatedAt: rel(-1, "21:10"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000202",
@@ -589,9 +608,9 @@ const NEED_SEEDS: NeedSeed[] = [
       packSize: null,
       image: "pet",
     },
-    deadlineAt: "2026-11-01T22:00:00.000Z",
-    createdAt: "2026-10-23T15:01:00.000Z",
-    updatedAt: "2026-10-29T10:05:00.000Z",
+    deadlineAt: rel(3, "22:00"),
+    createdAt: rel(-6, "15:01"),
+    updatedAt: rel(0, "10:05"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000203",
@@ -614,9 +633,9 @@ const NEED_SEEDS: NeedSeed[] = [
       packSize: 6,
       image: "medical",
     },
-    deadlineAt: "2026-11-06T22:00:00.000Z",
-    createdAt: "2026-10-22T12:00:00.000Z",
-    updatedAt: "2026-10-27T18:00:00.000Z",
+    deadlineAt: rel(8, "22:00"),
+    createdAt: rel(-7, "12:00"),
+    updatedAt: rel(-2, "18:00"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000204",
@@ -639,9 +658,9 @@ const NEED_SEEDS: NeedSeed[] = [
       packSize: 100,
       image: "pet",
     },
-    deadlineAt: "2026-11-10T22:00:00.000Z",
-    createdAt: "2026-10-24T09:00:00.000Z",
-    updatedAt: "2026-10-26T13:00:00.000Z",
+    deadlineAt: rel(12, "22:00"),
+    createdAt: rel(-5, "09:00"),
+    updatedAt: rel(-3, "13:00"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000205",
@@ -665,8 +684,8 @@ const NEED_SEEDS: NeedSeed[] = [
       image: null,
     },
     deadlineAt: null,
-    createdAt: "2026-10-25T10:00:00.000Z",
-    updatedAt: "2026-10-25T10:00:00.000Z",
+    createdAt: rel(-4, "10:00"),
+    updatedAt: rel(-4, "10:00"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000206",
@@ -689,9 +708,9 @@ const NEED_SEEDS: NeedSeed[] = [
       packSize: null,
       image: "pet",
     },
-    deadlineAt: "2026-10-30T22:00:00.000Z",
-    createdAt: "2026-10-26T08:00:00.000Z",
-    updatedAt: "2026-10-29T07:30:00.000Z",
+    deadlineAt: rel(1, "22:00"),
+    createdAt: rel(-3, "08:00"),
+    updatedAt: rel(0, "07:30"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000207",
@@ -716,10 +735,10 @@ const NEED_SEEDS: NeedSeed[] = [
       image: "bedding",
     },
     deadlineAt: null,
-    createdAt: "2026-10-20T10:00:00.000Z",
-    fundedAt: "2026-10-26T19:00:00.000Z",
-    approvedAt: "2026-10-27T11:00:00.000Z",
-    updatedAt: "2026-10-27T11:00:00.000Z",
+    createdAt: rel(-9, "10:00"),
+    fundedAt: rel(-3, "19:00"),
+    approvedAt: rel(-2, "11:00"),
+    updatedAt: rel(-2, "11:00"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000208",
@@ -743,9 +762,9 @@ const NEED_SEEDS: NeedSeed[] = [
       image: "household",
     },
     deadlineAt: null,
-    createdAt: "2026-10-19T10:00:00.000Z",
-    fundedAt: "2026-10-28T12:00:00.000Z",
-    updatedAt: "2026-10-28T12:00:00.000Z",
+    createdAt: rel(-10, "10:00"),
+    fundedAt: rel(-1, "12:00"),
+    updatedAt: rel(-1, "12:00"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000209",
@@ -769,12 +788,12 @@ const NEED_SEEDS: NeedSeed[] = [
       image: "pet",
     },
     deadlineAt: null,
-    createdAt: "2026-10-17T10:00:00.000Z",
-    fundedAt: "2026-10-24T18:00:00.000Z",
-    approvedAt: "2026-10-25T10:00:00.000Z",
-    orderedAt: "2026-10-25T10:20:00.000Z",
+    createdAt: rel(-12, "10:00"),
+    fundedAt: rel(-5, "18:00"),
+    approvedAt: rel(-4, "10:00"),
+    orderedAt: rel(-4, "10:20"),
     orderRef: "AMZ-114-7720391-5521",
-    updatedAt: "2026-10-25T10:20:00.000Z",
+    updatedAt: rel(-4, "10:20"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000210",
@@ -798,18 +817,18 @@ const NEED_SEEDS: NeedSeed[] = [
       image: "pet",
     },
     deadlineAt: null,
-    createdAt: "2026-10-12T10:00:00.000Z",
-    fundedAt: "2026-10-18T16:00:00.000Z",
-    approvedAt: "2026-10-19T09:00:00.000Z",
-    orderedAt: "2026-10-19T09:30:00.000Z",
+    createdAt: rel(-17, "10:00"),
+    fundedAt: rel(-11, "16:00"),
+    approvedAt: rel(-10, "09:00"),
+    orderedAt: rel(-10, "09:30"),
     orderRef: "CHW-88231907",
-    deliveredAt: "2026-10-23T17:00:00.000Z",
+    deliveredAt: rel(-6, "17:00"),
     delivery: {
-      message: "Two new carriers, already used at Saturday's adoption event. Thank you!",
+      message: "Two new carriers, already put to use at our latest adoption event. Thank you!",
       aiNotes: "Two grey top-load cat carriers, tags still on. Matches the posted product.",
       matchScore: 0.88,
     },
-    updatedAt: "2026-10-23T17:00:00.000Z",
+    updatedAt: rel(-6, "17:00"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000211",
@@ -833,8 +852,8 @@ const NEED_SEEDS: NeedSeed[] = [
       image: "pet",
     },
     deadlineAt: null,
-    createdAt: "2026-10-28T20:00:00.000Z",
-    updatedAt: "2026-10-28T20:00:00.000Z",
+    createdAt: rel(-1, "20:00"),
+    updatedAt: rel(-1, "20:00"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000212",
@@ -858,9 +877,9 @@ const NEED_SEEDS: NeedSeed[] = [
       image: "bedding",
     },
     deadlineAt: null,
-    createdAt: "2026-10-14T10:00:00.000Z",
-    closedAt: "2026-10-21T10:00:00.000Z",
-    updatedAt: "2026-10-21T10:00:00.000Z",
+    createdAt: rel(-15, "10:00"),
+    closedAt: rel(-8, "10:00"),
+    updatedAt: rel(-8, "10:00"),
   },
 
   // ----- Room 12 Readers (12) -----
@@ -885,9 +904,9 @@ const NEED_SEEDS: NeedSeed[] = [
       packSize: null,
       image: "clothing",
     },
-    deadlineAt: "2026-11-06T22:00:00.000Z",
-    createdAt: "2026-10-26T14:00:00.000Z",
-    updatedAt: "2026-10-28T15:00:00.000Z",
+    deadlineAt: rel(8, "22:00"),
+    createdAt: rel(-3, "14:00"),
+    updatedAt: rel(-1, "15:00"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000302",
@@ -910,9 +929,9 @@ const NEED_SEEDS: NeedSeed[] = [
       packSize: null,
       image: "clothing",
     },
-    deadlineAt: "2026-11-06T22:00:00.000Z",
-    createdAt: "2026-10-26T14:01:00.000Z",
-    updatedAt: "2026-10-26T14:01:00.000Z",
+    deadlineAt: rel(8, "22:00"),
+    createdAt: rel(-3, "14:01"),
+    updatedAt: rel(-3, "14:01"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000303",
@@ -935,9 +954,9 @@ const NEED_SEEDS: NeedSeed[] = [
       packSize: null,
       image: "clothing",
     },
-    deadlineAt: "2026-11-06T22:00:00.000Z",
-    createdAt: "2026-10-26T14:02:00.000Z",
-    updatedAt: "2026-10-29T11:00:00.000Z",
+    deadlineAt: rel(8, "22:00"),
+    createdAt: rel(-3, "14:02"),
+    updatedAt: rel(0, "11:00"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000304",
@@ -960,9 +979,9 @@ const NEED_SEEDS: NeedSeed[] = [
       packSize: 24,
       image: "school",
     },
-    deadlineAt: "2026-11-20T22:00:00.000Z",
-    createdAt: "2026-10-21T14:00:00.000Z",
-    updatedAt: "2026-10-27T20:00:00.000Z",
+    deadlineAt: rel(22, "22:00"),
+    createdAt: rel(-8, "14:00"),
+    updatedAt: rel(-2, "20:00"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000305",
@@ -986,8 +1005,8 @@ const NEED_SEEDS: NeedSeed[] = [
       image: "school",
     },
     deadlineAt: null,
-    createdAt: "2026-10-22T14:00:00.000Z",
-    updatedAt: "2026-10-25T16:00:00.000Z",
+    createdAt: rel(-7, "14:00"),
+    updatedAt: rel(-4, "16:00"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000306",
@@ -1012,10 +1031,10 @@ const NEED_SEEDS: NeedSeed[] = [
       image: "school",
     },
     deadlineAt: null,
-    createdAt: "2026-10-18T14:00:00.000Z",
-    fundedAt: "2026-10-26T12:00:00.000Z",
-    approvedAt: "2026-10-27T08:30:00.000Z",
-    updatedAt: "2026-10-27T08:30:00.000Z",
+    createdAt: rel(-11, "14:00"),
+    fundedAt: rel(-3, "12:00"),
+    approvedAt: rel(-2, "08:30"),
+    updatedAt: rel(-2, "08:30"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000307",
@@ -1039,9 +1058,9 @@ const NEED_SEEDS: NeedSeed[] = [
       image: "school",
     },
     deadlineAt: null,
-    createdAt: "2026-10-19T14:00:00.000Z",
-    fundedAt: "2026-10-28T19:00:00.000Z",
-    updatedAt: "2026-10-28T19:00:00.000Z",
+    createdAt: rel(-10, "14:00"),
+    fundedAt: rel(-1, "19:00"),
+    updatedAt: rel(-1, "19:00"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000308",
@@ -1065,12 +1084,12 @@ const NEED_SEEDS: NeedSeed[] = [
       image: "hygiene",
     },
     deadlineAt: null,
-    createdAt: "2026-10-16T14:00:00.000Z",
-    fundedAt: "2026-10-23T12:00:00.000Z",
-    approvedAt: "2026-10-24T08:00:00.000Z",
-    orderedAt: "2026-10-24T08:10:00.000Z",
+    createdAt: rel(-13, "14:00"),
+    fundedAt: rel(-6, "12:00"),
+    approvedAt: rel(-5, "08:00"),
+    orderedAt: rel(-5, "08:10"),
     orderRef: "TGT-9902-1184",
-    updatedAt: "2026-10-24T08:10:00.000Z",
+    updatedAt: rel(-5, "08:10"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000309",
@@ -1094,18 +1113,18 @@ const NEED_SEEDS: NeedSeed[] = [
       image: "clothing",
     },
     deadlineAt: null,
-    createdAt: "2026-10-10T14:00:00.000Z",
-    fundedAt: "2026-10-16T18:00:00.000Z",
-    approvedAt: "2026-10-17T08:00:00.000Z",
-    orderedAt: "2026-10-17T08:20:00.000Z",
+    createdAt: rel(-19, "14:00"),
+    fundedAt: rel(-13, "18:00"),
+    approvedAt: rel(-12, "08:00"),
+    orderedAt: rel(-12, "08:20"),
     orderRef: "TGT-7710-3302",
-    deliveredAt: "2026-10-22T19:00:00.000Z",
+    deliveredAt: rel(-7, "19:00"),
     delivery: {
       message: "Four warm coats for our youngest readers. They wore them out to recess the same day!",
       aiNotes: "Four children's puffer jackets on a classroom coat rack. Matches the posted product and quantity.",
       matchScore: 0.91,
     },
-    updatedAt: "2026-10-22T19:00:00.000Z",
+    updatedAt: rel(-7, "19:00"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000310",
@@ -1129,8 +1148,8 @@ const NEED_SEEDS: NeedSeed[] = [
       image: "hygiene",
     },
     deadlineAt: null,
-    createdAt: "2026-10-29T07:00:00.000Z",
-    updatedAt: "2026-10-29T07:00:00.000Z",
+    createdAt: rel(0, "07:00"),
+    updatedAt: rel(0, "07:00"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000311",
@@ -1154,8 +1173,8 @@ const NEED_SEEDS: NeedSeed[] = [
       image: null,
     },
     deadlineAt: null,
-    createdAt: "2026-10-24T14:00:00.000Z",
-    updatedAt: "2026-10-26T09:00:00.000Z",
+    createdAt: rel(-5, "14:00"),
+    updatedAt: rel(-3, "09:00"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000312",
@@ -1179,9 +1198,9 @@ const NEED_SEEDS: NeedSeed[] = [
       image: "household",
     },
     deadlineAt: null,
-    createdAt: "2026-10-13T14:00:00.000Z",
-    closedAt: "2026-10-20T14:00:00.000Z",
-    updatedAt: "2026-10-20T14:00:00.000Z",
+    createdAt: rel(-16, "14:00"),
+    closedAt: rel(-9, "14:00"),
+    updatedAt: rel(-9, "14:00"),
   },
 ];
 
@@ -1391,7 +1410,7 @@ function buildDemoImpact(): ImpactRes {
   return ImpactRes.parse({
     donorFirstName: "Sam",
     totalCents: items.reduce((sum, i) => sum + i.amountCents, 0),
-    donatedAt: "2026-10-20T15:42:00.000Z",
+    donatedAt: rel(-9, "15:42"),
     items,
   });
 }

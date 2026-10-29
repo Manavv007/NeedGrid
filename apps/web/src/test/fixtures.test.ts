@@ -54,6 +54,54 @@ describe("mock fixtures", () => {
     const impact = ImpactRes.parse(impacts[DEMO_IMPACT_TOKEN]);
     expect(impact.totalCents).toBe(impact.items.reduce((sum, i) => sum + i.amountCents, 0));
   });
+
+  it("gives Harbor's tile wall a tile in every visible state and needs in at least 4 categories", () => {
+    const page = OrgPageRes.parse(mockDb.getOrgPage("harbor-food-bank"));
+    const statuses = new Set(page.needs.map((n) => n.status));
+    for (const status of ["open", "topping_up", "funded", "ordered", "delivered"] as const) {
+      expect(statuses).toContain(status);
+    }
+    expect(page.needs.some((n) => n.status === "open" && n.heldCents > 0)).toBe(true);
+    expect(new Set(page.needs.map((n) => n.category)).size).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe("mock dates follow the clock", () => {
+  // No date text here, only comparisons with whatever the clock says now. Fixed dates would break
+  // these as soon as the calendar passed them.
+  const DAY_MS = 86_400_000;
+  const now = Date.now();
+  const ms = (iso: string) => Date.parse(iso);
+
+  it("keeps Diapers, size 4 needed within the week", () => {
+    const deadline = needs.find((n) => n.card.id === harborDiapers)?.card.deadlineAt;
+    expect(deadline).toBeTruthy();
+    const ahead = ms(deadline ?? "") - now;
+    expect(ahead).toBeGreaterThan(0);
+    expect(ahead).toBeLessThan(6 * DAY_MS);
+  });
+
+  it("puts every donatable deadline ahead and everything that happened in the past", () => {
+    for (const { card, timeline, delivery, purchases } of needs) {
+      expect(ms(card.createdAt)).toBeLessThan(now);
+      expect(ms(card.updatedAt)).toBeLessThan(now);
+      if (card.deadlineAt && (card.status === "open" || card.status === "topping_up")) {
+        expect(ms(card.deadlineAt)).toBeGreaterThan(now);
+      }
+      for (const event of timeline) expect(ms(event.at)).toBeLessThan(now);
+      for (const purchase of purchases) expect(ms(purchase.createdAt)).toBeLessThan(now);
+      if (delivery) expect(ms(delivery.deliveredAt)).toBeLessThan(now);
+    }
+    expect(ms(ImpactRes.parse(impacts[DEMO_IMPACT_TOKEN]).donatedAt)).toBeLessThan(now);
+  });
+
+  it("keeps each need's story in order: posted, funded, delivered", () => {
+    for (const { card, timeline } of needs) {
+      const times = timeline.map((e) => ms(e.at));
+      expect(times).toEqual([...times].sort((a, b) => a - b));
+      expect(times[0]).toBe(ms(card.createdAt));
+    }
+  });
 });
 
 describe("mockDb responses parse with the shared schemas", () => {

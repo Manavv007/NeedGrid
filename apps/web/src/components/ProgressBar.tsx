@@ -14,6 +14,8 @@ type ProgressBarProps = {
   size?: keyof typeof HEIGHTS;
   /** Fully funded and beyond: a solid green bar. */
   complete?: boolean;
+  /** Replaces the default spoken value, e.g. "$70 of $84 raised, $14 left". */
+  valueText?: string;
   className?: string;
 };
 
@@ -34,11 +36,12 @@ export function ProgressBar({
   label,
   size = "md",
   complete = false,
+  valueText,
   className,
 }: ProgressBarProps) {
   const funded = widthPct(fundedCents, targetCents);
   const held = Math.min(100 - funded, widthPct(heldCents, targetCents));
-  const valueText =
+  const defaultValueText =
     heldCents > 0
       ? `${formatUsd(fundedCents)} of ${formatUsd(targetCents)} raised, ${formatUsd(heldCents)} being paid now`
       : `${formatUsd(fundedCents)} of ${formatUsd(targetCents)} raised`;
@@ -50,7 +53,7 @@ export function ProgressBar({
       aria-valuemin={0}
       aria-valuemax={targetCents}
       aria-valuenow={Math.min(fundedCents, targetCents)}
-      aria-valuetext={valueText}
+      aria-valuetext={valueText ?? defaultValueText}
       className={cn(
         "flex overflow-hidden rounded-full",
         complete ? "bg-success" : "bg-track",
