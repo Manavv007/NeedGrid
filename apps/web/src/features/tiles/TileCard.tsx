@@ -1,7 +1,8 @@
 import type { NeedCard, ProductSnapshot } from "@needgrid/shared";
-import { Clock, Package } from "lucide-react";
-import { useId, useState } from "react";
+import { Clock } from "lucide-react";
+import { useId } from "react";
 import { Link } from "react-router";
+import { ProductPhoto } from "@/components/ProductPhoto";
 import { ProgressBar } from "@/components/ProgressBar";
 import { StatusBadge } from "@/components/StatusBadge";
 import { UrgencyBadge } from "@/components/UrgencyBadge";
@@ -68,31 +69,14 @@ export function TileCard({ need }: TileCardProps) {
 
 /** Square product photo on white, or the design's grey placeholder. Fixed size, so nothing jumps. */
 function ProductImage({ product }: { product: ProductSnapshot | null }) {
-  const [failedSrc, setFailedSrc] = useState<string | null>(null);
-  const src = product?.imageUrl ?? null;
-  const showImage = product !== null && src !== null && src !== failedSrc;
-
   return (
-    <div className="flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-[10px] border bg-surface sm:aspect-square sm:h-auto sm:w-full sm:rounded-none sm:rounded-t-xl sm:border-0 sm:border-b sm:p-4">
-      {showImage ? (
-        <img
-          src={src}
-          alt={product.title}
-          loading="lazy"
-          decoding="async"
-          className="size-full object-contain"
-          onError={() => setFailedSrc(src)}
-        />
-      ) : (
-        <div
-          aria-hidden="true"
-          className="flex size-full flex-col items-center justify-center gap-2 bg-placeholder text-placeholder-icon sm:size-[62%] sm:rounded-xl"
-        >
-          <Package className="size-7.5 sm:size-9" strokeWidth={1.5} />
-          <span className="hidden text-xs sm:block">No photo yet</span>
-        </div>
-      )}
-    </div>
+    <ProductPhoto
+      product={product}
+      className="size-24 rounded-[10px] border sm:aspect-square sm:h-auto sm:w-full sm:rounded-none sm:rounded-t-xl sm:border-0 sm:border-b sm:p-4"
+      placeholderClassName="sm:size-[62%] sm:rounded-xl"
+      iconClassName="size-7.5 sm:size-9"
+      placeholderText={<span className="hidden text-xs sm:block">No photo yet</span>}
+    />
   );
 }
 

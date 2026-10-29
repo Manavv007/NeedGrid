@@ -15,8 +15,8 @@ import { createAppRouter } from "@/router";
 
 async function startMocks(): Promise<void> {
   // Dynamic import behind the env check: mock code is not in the bundle when mocks are off.
-  const { worker } = await import("./mocks/browser");
-  await worker.start({ onUnhandledRequest: "bypass" });
+  const { startMockApi } = await import("./mocks/browser");
+  await startMockApi();
 }
 
 async function main(): Promise<void> {

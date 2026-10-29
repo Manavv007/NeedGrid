@@ -41,6 +41,14 @@
   --held-stripe: #c5e8e4;
   --paypal-mock: #ffc439;
 
+  /* Added in C-3 (need page, donate panel, thank-you) */
+  --success-soft: #f0fdf4;
+  --success-border: #bbf7d0;
+  --success-strong: #14532d;
+  --quote-bg: #f0f8f7;
+  --quote-text: #134e4a;
+  --confirming-track: #fde68a;
+
   /* Status badges (background / text) */
   --badge-urgent-bg: #fdebdd;
   --badge-urgent-text: #9a3412;
@@ -132,6 +140,12 @@
   --color-placeholder-strong: var(--placeholder-strong);
   --color-placeholder-icon: var(--placeholder-icon);
   --color-paypal-mock: var(--paypal-mock);
+  --color-success-soft: var(--success-soft);
+  --color-success-border: var(--success-border);
+  --color-success-strong: var(--success-strong);
+  --color-quote-bg: var(--quote-bg);
+  --color-quote-text: var(--quote-text);
+  --color-confirming-track: var(--confirming-track);
   --color-badge-urgent-bg: var(--badge-urgent-bg);
   --color-badge-urgent-text: var(--badge-urgent-text);
   --color-badge-medium-bg: var(--badge-medium-bg);

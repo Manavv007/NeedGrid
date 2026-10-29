@@ -18,10 +18,12 @@ function toLevel(urgency: number): Level {
 type UrgencyBadgeProps = {
   urgency: number;
   audience?: "donor" | "staff";
+  /** Extra words after the level, e.g. "needed by Fri" → "Urgent · needed by Fri". */
+  suffix?: string | null;
   className?: string;
 };
 
-export function UrgencyBadge({ urgency, audience = "donor", className }: UrgencyBadgeProps) {
+export function UrgencyBadge({ urgency, audience = "donor", suffix, className }: UrgencyBadgeProps) {
   const level = LEVELS[toLevel(urgency)];
   return (
     <span
@@ -32,7 +34,7 @@ export function UrgencyBadge({ urgency, audience = "donor", className }: Urgency
       )}
     >
       <TriangleAlert aria-hidden="true" className="size-3" strokeWidth={2.5} />
-      {level[audience]}
+      {suffix ? `${level[audience]} · ${suffix}` : level[audience]}
     </span>
   );
 }

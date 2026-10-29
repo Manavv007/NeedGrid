@@ -1,5 +1,5 @@
 // Display-only formatting. Never use these results for maths.
-import type { Category } from "@needgrid/shared";
+import type { Category, NeedStatus } from "@needgrid/shared";
 
 export { formatUsd } from "@needgrid/shared";
 
@@ -14,6 +14,15 @@ const usdCents = new Intl.NumberFormat("en-US", { style: "currency", currency: "
 /** Tiles and stats: "$14" for whole dollars, "$14.50" otherwise. */
 export function formatUsdShort(cents: number): string {
   return cents % 100 === 0 ? usdWhole.format(cents / 100) : usdCents.format(cents / 100);
+}
+
+/** "$14 left", or "$5 more needed" while a tile is topping up after a price rise (TileStates.dc.html). */
+export function formatLeft(
+  status: NeedStatus,
+  remainingCents: number,
+  format: (cents: number) => string = formatUsdShort,
+): string {
+  return status === "topping_up" ? `${format(remainingCents)} more needed` : `${format(remainingCents)} left`;
 }
 
 /** Headline totals ("Raised $1,284"): whole dollars, cents dropped so a total is never overstated. */
