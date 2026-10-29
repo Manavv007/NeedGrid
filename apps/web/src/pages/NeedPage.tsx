@@ -11,10 +11,13 @@ import { FundNextNeed } from "@/features/need/FundNextNeed";
 import { NeedInfo } from "@/features/need/NeedInfo";
 import { NeedStatusBox } from "@/features/need/NeedStatusBox";
 import { DonateSheet, PhoneDonateBar } from "@/features/need/PhoneDonate";
+import { LiveStatus } from "@/features/live/LiveStatus";
+import { useLiveUpdates } from "@/features/live/useLiveUpdates";
 import { isDonatable } from "@/features/tiles/filterNeeds";
 import { ApiClientError } from "@/lib/api";
 import { needPath, orgPath } from "@/lib/links";
 import { useNeed } from "@/lib/queries";
+import { useOrgStream } from "@/lib/sse";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { DESKTOP_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { NotFoundPage } from "./NotFoundPage";
@@ -48,6 +51,8 @@ function NeedPageContent({ slug, needId }: { slug: string; needId: string }) {
   const need = useNeed(needId);
   const location = useLocation();
   const detail = need.data;
+  // Live from the first render (and kept from the tile wall when the donor came from there).
+  useOrgStream(slug);
 
   useDocumentTitle(detail ? `${detail.need.title} · ${detail.org.name} · NeedGrid` : null);
 
@@ -94,6 +99,11 @@ function NeedView({ detail }: { detail: NeedDetailRes }) {
   // this donor's own hold), so the donor sees how their payment ends.
   const showPanel = takesDonations || phase !== "idle";
   const busy = phase === "creating" || phase === "capturing";
+  // Someone else funded it while the donor was only choosing an amount: the status view replaces the
+  // panel, and the sheet must not pop back open if the item takes donations again later.
+  if (!showPanel && sheetOpen) setSheetOpen(false);
+  // Live changes to this item are announced, except while the donor is paying (they're the donor's).
+  const live = useLiveUpdates(need.orgSlug, { needId: need.id, quiet: phase !== "idle" });
   // Never move a panel mid-payment: an open sheet stays a sheet if the window grows (a phone
   // rotating), and a payment started in the column stays there if the window shrinks.
   const panelInColumn = showPanel && !sheetOpen && (isDesktop || phase !== "idle");
@@ -154,6 +164,7 @@ function NeedView({ detail }: { detail: NeedDetailRes }) {
       {panelInSheet ? (
         <DonateSheet need={need} open={sheetOpen} onOpenChange={changeSheet} onPhaseChange={setPhase} />
       ) : null}
+      <LiveStatus {...live} aboveBottomBar={showBar} />
     </div>
   );
 }

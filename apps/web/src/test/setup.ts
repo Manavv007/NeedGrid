@@ -3,6 +3,7 @@ import { cleanup, configure } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll } from "vitest";
 import { mockDb } from "@/mocks/mockDb";
 import { server } from "@/mocks/node";
+import { clearOwnChanges } from "@/lib/ownChanges";
 
 // findBy*/waitFor give up after 1 s by default; a busy machine running the whole suite (API tests in
 // parallel) can take longer than that to render a full route, which made tests flaky, not wrong.
@@ -19,6 +20,7 @@ afterEach(() => {
   cleanup();
   server.resetHandlers();
   mockDb.reset();
+  clearOwnChanges();
   sessionStorage.clear();
 });
 

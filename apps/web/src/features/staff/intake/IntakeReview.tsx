@@ -77,7 +77,7 @@ export function IntakeReview({ rows, warnings, previewUrl, onChange, onReplace, 
         ))}
       </ul>
 
-      <div className="sticky bottom-0 z-10 -mx-4 border-t bg-surface px-4 py-3 shadow-[0_-4px_12px_rgb(0_0_0/0.06)] sm:-mx-6 sm:px-6">
+      <div className="sticky bottom-0 z-10 -mx-4 border-t bg-surface px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgb(0_0_0/0.06)] sm:-mx-6 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-col gap-0.5">
             <p aria-live="polite" className="text-sm">

@@ -19,6 +19,8 @@ import {
 import { NeedsTable } from "@/features/staff/console/NeedsTable";
 import { WaitingOnYou } from "@/features/staff/console/WaitingOnYou";
 import { useStaffOrg } from "@/features/staff/useStaffOrg";
+import { LiveStatus } from "@/features/live/LiveStatus";
+import { useLiveUpdates } from "@/features/live/useLiveUpdates";
 import { useStaffNeeds } from "@/lib/queries";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 
@@ -51,13 +53,15 @@ const EMPTY: Readonly<Record<ConsoleTab, { title: string; message: string }>> = 
   },
 };
 
-/** `/staff`: needs by status with a next step per row (brief A9.7, StaffConsole.dc.html). */
+/** `/staff`: needs by status with a next step per row (brief A9.7, StaffConsole.dc.html). Live via the org stream. */
 export function StaffConsolePage() {
   const org = useStaffOrg();
   useDocumentTitle(`Needs · ${org.name} · NeedGrid staff`);
   const [params, setParams] = useSearchParams();
   const tab = parseTab(params.get("tab"));
   const needs = useStaffNeeds();
+  // Every live update invalidates the staff lists, so rows, counts and tabs follow donations.
+  const live = useLiveUpdates(org.slug);
 
   function selectTab(next: ConsoleTab) {
     const nextParams = new URLSearchParams(params);
@@ -83,6 +87,7 @@ export function StaffConsolePage() {
       ) : (
         <ConsoleSkeleton />
       )}
+      <LiveStatus {...live} />
     </div>
   );
 }

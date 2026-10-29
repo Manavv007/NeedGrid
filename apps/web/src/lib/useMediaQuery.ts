@@ -3,6 +3,8 @@ import { useCallback, useSyncExternalStore } from "react";
 /** Phones get bottom sheets; from this width up the desktop layout (docs/design-tokens.md, brief §10). */
 export const DESKTOP_QUERY = "(min-width: 768px)";
 
+export const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+
 const hasMatchMedia = () => typeof window !== "undefined" && typeof window.matchMedia === "function";
 
 /**

@@ -60,6 +60,16 @@ Warm, trustworthy, concrete. Real product photos are the hero; the UI stays calm
 | `--quote-text` | `#134E4A` | Text on `--quote-bg` |
 | `--confirming-track` | `#FDE68A` | Track of the "Confirming your gift…" spinner (the moving part is `--warning`) |
 
+## Added in C-5 (live updates, big screen)
+
+| Token | Hex | Use |
+|---|---|---|
+| `--reconnecting-dot` | `#FBBF24` | Dot in the "Reconnecting live updates…" pill (the pill itself is `--text` with white text) |
+
+- Just-funded highlight: `animate-just-funded` (two soft rings of `--success` spreading out), with a `--success` border.
+- Big-screen ticker: `--staff-header` background, "Just now" pill in `--success`.
+- Big-screen mode scales every rem with the screen (`html[data-display="wall"]` in `globals.css`): 16 px at 1920×1080.
+
 ## Status badges (background / text)
 
 | Status | Background | Text | CSS variables |

@@ -39,7 +39,8 @@ export function SaveImpactLink({ token }: { token: string }) {
           readOnly
           value={url}
           onFocus={(event) => event.currentTarget.select()}
-          className="h-11 min-w-0 flex-1 rounded-md border border-border-strong bg-background px-2.5 text-[13px] text-soft"
+          // 16 px on phones: iOS zooms the page into any smaller field, read-only or not.
+          className="h-11 min-w-0 flex-1 rounded-md border border-border-strong bg-background px-2.5 text-base text-soft sm:text-[13px]"
         />
         <Button onClick={() => void copy()}>Copy</Button>
       </div>
