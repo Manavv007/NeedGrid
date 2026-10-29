@@ -1,5 +1,5 @@
 /** Test doubles for Channel3. Made-up products only. Use with setChannel3Gateway(). */
-import type { Channel3Gateway, Channel3Product } from "./client";
+import type { Channel3Gateway, Channel3Product, SearchFilters } from "./client";
 
 type FakeOffer = NonNullable<Channel3Product["offers"]>[number];
 
@@ -30,15 +30,15 @@ export function fakeProduct(over: Partial<Channel3Product> = {}): Channel3Produc
 
 /** In-memory gateway that records every call, so tests can assert caching. */
 export class FakeChannel3 implements Channel3Gateway {
-  calls: Array<{ op: "search" | "retrieve" | "lookup"; arg: string; limit?: number }> = [];
+  calls: Array<{ op: "search" | "retrieve" | "lookup"; arg: string; limit?: number; filters?: SearchFilters }> = [];
   searchResults = new Map<string, Channel3Product[]>();
   products = new Map<string, Channel3Product>();
   lookups = new Map<string, Channel3Product>();
   /** When set, every call rejects with this error. */
   failWith: Error | null = null;
 
-  async search(query: string, limit: number): Promise<Channel3Product[]> {
-    this.calls.push({ op: "search", arg: query, limit });
+  async search(query: string, limit: number, filters?: SearchFilters): Promise<Channel3Product[]> {
+    this.calls.push({ op: "search", arg: query, limit, ...(filters?.excludeCategoryIds ? { filters } : {}) });
     if (this.failWith) throw this.failWith;
     return (this.searchResults.get(query.toLowerCase()) ?? []).slice(0, limit);
   }
