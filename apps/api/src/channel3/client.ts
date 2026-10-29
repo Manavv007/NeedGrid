@@ -16,9 +16,14 @@ import { HttpError, upstream } from "../lib/http";
 
 export type Channel3Product = Channel3Api.Product;
 
+export interface SearchFilters {
+  /** Channel3 category slugs to leave out (with descendants), e.g. "animals-pet-supplies". */
+  excludeCategoryIds?: string[];
+}
+
 export interface Channel3Gateway {
   /** Text search, US/USD locale. In-stock offers only (Channel3's default availability filter). */
-  search(query: string, limit: number): Promise<Channel3Product[]>;
+  search(query: string, limit: number, filters?: SearchFilters): Promise<Channel3Product[]>;
   /** One product by id with all current offers. null when Channel3 doesn't know it (404). */
   retrieve(productId: string): Promise<Channel3Product | null>;
   /** Canonical product for a merchant URL. null for non-product pages (422) or unknown URLs (404). */
@@ -51,9 +56,15 @@ export class SdkChannel3Gateway implements Channel3Gateway {
     this.client = new Channel3({ apiKey, maxRetries: 2, timeoutInSeconds: 20 });
   }
 
-  async search(query: string, limit: number): Promise<Channel3Product[]> {
+  async search(query: string, limit: number, filters: SearchFilters = {}): Promise<Channel3Product[]> {
     try {
-      const page = await this.client.products.search({ query, limit, config: LOCALE });
+      const exclude = filters.excludeCategoryIds?.length ? filters.excludeCategoryIds : undefined;
+      const page = await this.client.products.search({
+        query,
+        limit,
+        config: LOCALE,
+        ...(exclude ? { filters: { exclude_category_ids: exclude } } : {}),
+      });
       return page.data;
     } catch (err) {
       throw toHttpError(err, "search");

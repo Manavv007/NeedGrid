@@ -1,0 +1,37 @@
+{
+  "_comment": "Demo photos on the team Cloudinary account (made-up/staged data only). Used by the demo video and the intake evals.",
+  "shelf": {
+    "url": "https://res.cloudinary.com/dbtp5ze7m/image/upload/v1793289210/Sparse_Baby_Care_Aisle_Shelves_co95al.png",
+    "kind": "empty-shelf",
+    "expected": [
+      { "title": "Diapers, size 4", "category": "baby" },
+      { "title": "Diapers, size 5", "category": "baby" },
+      { "title": "Baby wipes", "category": "baby" },
+      { "title": "Infant formula", "category": "baby" },
+      { "title": "Diaper rash cream", "category": "baby" },
+      { "title": "Baby wash", "category": "baby" }
+    ],
+    "notes": "Six shelf labels, no quantities written. Quantities are estimated (confidence 0.5)."
+  },
+  "list": {
+    "url": "https://res.cloudinary.com/dbtp5ze7m/image/upload/v1793286197/3053b03a-027b-42db-adf5-0befb4c01877_cvakqr.jpg",
+    "kind": "handwritten-list",
+    "expected": [
+      { "title": "Rice", "category": "food" },
+      { "title": "Wheat flour", "category": "food" },
+      { "title": "Dal", "category": "food" },
+      { "title": "Chana", "category": "food" },
+      { "title": "Cooking oil", "category": "food" },
+      { "title": "Salt", "category": "food" },
+      { "title": "Sugar", "category": "food" },
+      { "title": "Poha", "category": "food" },
+      { "title": "Suji", "category": "food" },
+      { "title": "Oats", "category": "food" },
+      { "title": "Tea", "category": "food" },
+      { "title": "Biscuits", "category": "food" },
+      { "title": "Packaged snacks", "category": "food" },
+      { "title": "Milk powder", "category": "food" }
+    ],
+    "notes": "Handwritten 'Food and groceries' list, 14 items, no quantities. Channel3 has no grocery catalog, so most items get no product match."
+  }
+}
