@@ -48,6 +48,9 @@ export function embeddingModel(): EmbeddingModel {
 
 export const isAiConfigured = (): boolean => Boolean(override?.language) || Boolean(env.GOOGLE_GENERATIVE_AI_API_KEY);
 
+export const isEmbeddingConfigured = (): boolean =>
+  Boolean(override?.embedding) || Boolean(env.GOOGLE_GENERATIVE_AI_API_KEY);
+
 /** Tests: swap in mock models (null restores Gemini). Also clears the result cache. */
 export function setAiModels(models: Partial<Models> | null): void {
   override = models;
