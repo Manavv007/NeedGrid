@@ -14,8 +14,8 @@ import { wrapUntrusted } from "./untrusted";
 
 export const MAX_CANDIDATES = 8;
 export const MAX_OPTIONS = 3;
-/** The prompt tells the model "clearly wrong → 0.2 or lower"; those aren't shown. */
-export const MIN_FIT = 0.25;
+/** The prompt scores wrong products 0.2 or lower and related-but-different ones 0.4 or lower; those aren't shown. */
+export const MIN_FIT = 0.5;
 const MAX_REASON = 120;
 const RANK_CHUNK = 8;
 

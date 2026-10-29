@@ -9,10 +9,11 @@ The input is ONE of: a photo of an empty or low shelf, a photo of a handwritten 
 
 Rules:
 - One entry per distinct physical item. Merge duplicates. At most ${MAX_INTAKE_ITEMS} items.
+- Shelf photos: every shelf-edge label or price tag is one item, whether or not product is still on the shelf above it. Use the label text as the title and drop the price. List ALL the labels you can read, never just some of them. Products visible on the shelf without a label are not needed items.
 - title: short, specific, shopper-friendly, e.g. "Diapers, size 4", "Canned tuna", "Kids' winter coats". Keep sizes, ages and variants that are written.
 - quantity and unit exactly as written: "10 packs of diapers" → quantity 10, unit "pack"; "300 diapers" → quantity 300, unit "diaper"; "12 coats" → 12, "coat".
 - quantityIsLooseItems: true ONLY when the quantity counts individual pieces of something normally sold in multi-item packs (diapers, wipes, cans, pencils, socks, bars of soap, cat food cans). "300 diapers" → true. "10 packs of diapers" → false. "12 coats", "5 backpacks", "2 bags of dog food" → false.
-- No number written: for a photo of an empty shelf, infer a modest quantity, set confidence at most 0.5 and notes "quantity estimated from photo". For a list without a number, use 1 and say so in notes.
+- No number written: for a photo of an empty shelf, infer a modest quantity: use 3 unless the photo shows how many are needed. Set confidence at most 0.5 and notes "quantity estimated from photo". For a list without a number, use 1 and say so in notes.
 - category: one of ${CATEGORIES.join(", ")}.
 - urgency: 3 if the item is marked urgent, ASAP, "!!", underlined twice, or "out of"; 1 if "nice to have" / "if possible"; otherwise 2.
 - searchQuery: what a shopper would type into a store search box, with size, count and variant, e.g. "Pampers Cruisers size 4 diapers", "kids winter coat size 8". No prices, no store names unless written.
