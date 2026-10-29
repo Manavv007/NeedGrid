@@ -6,6 +6,7 @@ packages:
 # esbuild (used by tsx, tsup, drizzle-kit, vite) needs its postinstall to set up its native binary.
 allowBuilds:
   esbuild: true
+  msw: false
 
 # pnpm's minimum-release-age gate skips very fresh releases. These exact versions were
 # published inside that window when the repo was set up and were reviewed and accepted.

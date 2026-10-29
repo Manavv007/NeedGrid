@@ -1,0 +1,197 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+/* Custom variants (data-open, data-checked, ...) used by the shadcn radix-nova components (vendored, MIT). */
+@import "./shadcn-tailwind.css";
+
+/*
+ * NeedGrid design tokens. Source of truth for code; keep docs/design-tokens.md in sync.
+ * Components use the Tailwind utilities generated in @theme below (bg-surface, text-left-text, ...),
+ * never raw hex values.
+ */
+:root {
+  color-scheme: light;
+
+  /* Core colours */
+  --bg: #fbf8f3;
+  --surface: #ffffff;
+  --text: #1f2328;
+  --text-soft: #4a4f57;
+  --muted: #6b6f76;
+  --primary: #0f766e;
+  --primary-hover: #115e59;
+  --primary-soft: #e6f4f2;
+  --on-primary: #ffffff;
+  --accent: #ea7a2e;
+  --success: #15803d;
+  --warning: #b45309;
+  --held: #99d5cf;
+
+  /* Added during design */
+  --left-text: #c2410c;
+  --danger: #b91c1c;
+  --staff-header: #134e4a;
+  --staff-header-link: #d5ece9;
+  --staff-bg: #f6f4ef;
+  --border: #ece6dc;
+  --border-strong: #d9d3c7;
+  --track: #efeae1;
+  --placeholder: #f4f1eb;
+  --placeholder-strong: #e9e4da;
+  --placeholder-icon: #8a8f96;
+  --held-stripe: #c5e8e4;
+  --paypal-mock: #ffc439;
+
+  /* Status badges (background / text) */
+  --badge-urgent-bg: #fdebdd;
+  --badge-urgent-text: #9a3412;
+  --badge-medium-bg: #fef3c7;
+  --badge-medium-text: #92400e;
+  --badge-low-bg: #eef2f1;
+  --badge-low-text: #3f5450;
+  --badge-success-bg: #dcfce7;
+  --badge-success-text: #166534;
+  --badge-info-bg: #e0f2fe;
+  --badge-info-text: #075985;
+  --badge-warning-bg: #fef3c7;
+  --badge-warning-text: #92400e;
+  --badge-danger-bg: #fee2e2;
+  --badge-danger-text: #991b1b;
+
+  /*
+   * shadcn/ui semantic variables, mapped onto our tokens (light theme only).
+   * shadcn's "muted" (a surface) and "accent" (a hover surface) clash with our --muted (text) and
+   * --accent (orange), so those two are mapped in @theme instead of being redefined here.
+   */
+  --background: var(--bg);
+  --foreground: var(--text);
+  --card: var(--surface);
+  --card-foreground: var(--text);
+  --popover: var(--surface);
+  --popover-foreground: var(--text);
+  --primary-foreground: var(--on-primary);
+  --secondary: var(--surface);
+  --secondary-foreground: var(--text);
+  --muted-foreground: var(--muted);
+  --accent-foreground: var(--text);
+  --destructive: var(--danger);
+  --input: var(--border-strong);
+  --ring: var(--primary);
+}
+
+@theme inline {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-heading: var(--font-sans);
+
+  /* Radius: 12 px cards (rounded-xl), 8 px controls (rounded-md), pills rounded-full */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 14px;
+  --radius-3xl: 20px;
+  --radius-4xl: 24px;
+
+  /* shadcn utilities */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--track);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--placeholder);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* NeedGrid utilities */
+  --color-surface: var(--surface);
+  --color-soft: var(--text-soft);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-soft);
+  --color-brand-accent: var(--accent);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-held: var(--held);
+  --color-held-stripe: var(--held-stripe);
+  --color-left-text: var(--left-text);
+  --color-staff-header: var(--staff-header);
+  --color-staff-header-link: var(--staff-header-link);
+  --color-staff-bg: var(--staff-bg);
+  --color-border-strong: var(--border-strong);
+  --color-track: var(--track);
+  --color-placeholder: var(--placeholder);
+  --color-placeholder-strong: var(--placeholder-strong);
+  --color-placeholder-icon: var(--placeholder-icon);
+  --color-paypal-mock: var(--paypal-mock);
+  --color-badge-urgent-bg: var(--badge-urgent-bg);
+  --color-badge-urgent-text: var(--badge-urgent-text);
+  --color-badge-medium-bg: var(--badge-medium-bg);
+  --color-badge-medium-text: var(--badge-medium-text);
+  --color-badge-low-bg: var(--badge-low-bg);
+  --color-badge-low-text: var(--badge-low-text);
+  --color-badge-success-bg: var(--badge-success-bg);
+  --color-badge-success-text: var(--badge-success-text);
+  --color-badge-info-bg: var(--badge-info-bg);
+  --color-badge-info-text: var(--badge-info-text);
+  --color-badge-warning-bg: var(--badge-warning-bg);
+  --color-badge-warning-text: var(--badge-warning-text);
+  --color-badge-danger-bg: var(--badge-danger-bg);
+  --color-badge-danger-text: var(--badge-danger-text);
+}
+
+/* Held part of a progress bar: diagonal stripes of the two held colours. */
+@utility bg-held-stripes {
+  background-image: repeating-linear-gradient(45deg, var(--held) 0 4px, var(--held-stripe) 4px 8px);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+    /* Money everywhere: digits line up. */
+    font-variant-numeric: tabular-nums;
+  }
+
+  a {
+    color: var(--primary);
+  }
+
+  a:hover {
+    color: var(--primary-hover);
+  }
+
+  /* Visible focus ring on everything keyboard-reachable (shadcn components add their own ring too). */
+  :focus-visible {
+    outline: 3px solid var(--primary);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
