@@ -1,7 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-/* Custom variants (data-open, data-checked, ...) used by the shadcn radix-nova components. */
-@import "shadcn/tailwind.css";
+/* Custom variants (data-open, data-checked, ...) used by the shadcn radix-nova components (vendored, MIT). */
+@import "./shadcn-tailwind.css";
 
 /*
  * NeedGrid design tokens. Source of truth for code; keep docs/design-tokens.md in sync.
