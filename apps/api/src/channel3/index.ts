@@ -6,7 +6,15 @@ import { HttpError } from "../lib/http";
 import { channel3Gateway, TtlCache, type Channel3Product } from "./client";
 import { normalizeProduct, normalizeQuery, productOffers } from "./normalize";
 
-export { isChannel3Configured, setChannel3Gateway, type Channel3Gateway, type Channel3Product } from "./client";
+export {
+  isChannel3Configured,
+  setChannel3Gateway,
+  type Channel3Gateway,
+  type Channel3Product,
+  type SearchFilters,
+} from "./client";
+/** Channel3's root category for pet products. Excluded for non-pet needs ("canned tuna" otherwise finds cat food). */
+export const PET_CATEGORY = "animals-pet-supplies";
 export { parsePackSize } from "./normalize";
 
 const HOUR = 60 * 60 * 1000;
@@ -36,12 +44,16 @@ export function clearChannel3Cache(): void {
 }
 
 /** Text search → up to `limit` (default 8) normalised, de-duplicated products. Products without a USD offer are dropped. */
-export async function searchProducts(query: string, opts: { limit?: number } = {}): Promise<ProductSnapshot[]> {
+export async function searchProducts(
+  query: string,
+  opts: { limit?: number; excludeCategoryIds?: string[] } = {},
+): Promise<ProductSnapshot[]> {
   const q = query.replace(CONTROL_CHARS, " ").trim().slice(0, MAX_QUERY_CHARS);
   if (q.length === 0) return [];
   const limit = Math.min(Math.max(Math.trunc(opts.limit ?? DEFAULT_LIMIT), 1), MAX_LIMIT);
-  return searchCache.getOrLoad(`${normalizeQuery(q)}|${limit}`, async () => {
-    const products = await channel3Gateway().search(q, limit);
+  const exclude = [...new Set(opts.excludeCategoryIds ?? [])].sort();
+  return searchCache.getOrLoad(`${normalizeQuery(q)}|${limit}|${exclude.join(",")}`, async () => {
+    const products = await channel3Gateway().search(q, limit, exclude.length ? { excludeCategoryIds: exclude } : {});
     const fetchedAt = new Date().toISOString();
     const seen = new Set<string>();
     const out: ProductSnapshot[] = [];
