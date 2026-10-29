@@ -94,7 +94,7 @@ export async function extractNeeds(input: { imageUrl: string } | { text: string 
               role: "user",
               content: [
                 { type: "text", text: INTAKE_IMAGE_PROMPT },
-                { type: "image", image: image.bytes, mediaType: image.mediaType },
+                { type: "file", data: image.bytes, mediaType: image.mediaType },
               ],
             },
           ];
