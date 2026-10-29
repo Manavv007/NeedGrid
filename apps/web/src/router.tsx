@@ -1,14 +1,17 @@
 import { createBrowserRouter, type RouteObject } from "react-router";
 import { PublicLayout } from "@/components/layout/PublicLayout";
 import { RootLayout } from "@/components/layout/RootLayout";
-import { StaffLayout } from "@/components/layout/StaffLayout";
 import { PageSkeleton } from "@/components/PageSkeleton";
+import { StaffGate } from "@/features/staff/StaffGate";
+import { IntakePage } from "@/pages/IntakePage";
 import { LandingPage } from "@/pages/LandingPage";
 import { NeedPage } from "@/pages/NeedPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { OrgPage } from "@/pages/OrgPage";
 import { PlaceholderPage } from "@/pages/PlaceholderPage";
 import { RouteErrorPage } from "@/pages/RouteErrorPage";
+import { StaffConsolePage } from "@/pages/StaffConsolePage";
+import { StaffLoginPage } from "@/pages/StaffLoginPage";
 import { ThankYouPage } from "@/pages/ThankYouPage";
 
 /** Every route from brief §9. Placeholders name the task that builds the real screen. */
@@ -34,20 +37,21 @@ export const routes: RouteObject[] = [
               return { Component };
             },
           },
-          { path: "staff/login", element: <PlaceholderPage title="Staff sign in" task="C-4" /> },
           { path: "*", Component: NotFoundPage },
         ],
       },
       // Printable flyers have no site chrome (P1).
       { path: "o/:slug/flyer", element: <PlaceholderPage title="Flyer" task="C-11" /> },
       { path: "o/:slug/n/:needId/flyer", element: <PlaceholderPage title="Need flyer" task="C-11" /> },
+      // A standalone staff page: outside the public layout and outside the gate.
+      { path: "staff/login", Component: StaffLoginPage },
       {
-        // StaffGate (C-4) will wrap these: no key → /staff/login.
+        // No passcode → /staff/login?next=…; otherwise GET /api/staff/me once, then the staff shell.
         path: "staff",
-        Component: StaffLayout,
+        Component: StaffGate,
         children: [
-          { index: true, element: <PlaceholderPage title="Needs" task="C-4" /> },
-          { path: "intake", element: <PlaceholderPage title="Add needs" task="C-4" /> },
+          { index: true, Component: StaffConsolePage },
+          { path: "intake", Component: IntakePage },
           { path: "needs/:id", element: <PlaceholderPage title="Manage need" task="C-6" /> },
           { path: "assistant", element: <PlaceholderPage title="Assistant" task="C-9" /> },
           { path: "invoices", element: <PlaceholderPage title="Invoices" task="C-10" /> },

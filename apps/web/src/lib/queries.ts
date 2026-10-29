@@ -2,21 +2,31 @@ import {
   CaptureRes,
   CreateOrderRes,
   ImpactRes,
+  IntakeReq,
+  IntakeRes,
   NeedDetailRes,
+  NeedRes,
   OrgListRes,
   OrgPageRes,
   paths,
+  StaffMeRes,
+  StaffNeedDetailRes,
+  StaffNeedListRes,
   type AGENT_ACTION_STATUSES,
   type CreateOrderReq,
+  type NeedCard,
   type NeedStatus,
+  type PatchNeedReq,
+  type PublishNeedReq,
 } from "@needgrid/shared";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { ApiClientError, apiGet, apiPost } from "./api";
+import { ApiClientError, apiGet, apiPatch, apiPost } from "./api";
 
 type AgentActionStatus = (typeof AGENT_ACTION_STATUSES)[number];
 
 /** Query keys (brief §7.5). Mutations and live updates invalidate or patch exactly these. */
 export const queryKeys = {
+  staffMe: () => ["staffMe"] as const,
   orgs: () => ["orgs"] as const,
   org: (slug: string) => ["org", slug] as const,
   need: (id: string) => ["need", id] as const,
@@ -103,5 +113,86 @@ export function useCapture() {
       }
     },
     onSuccess: () => invalidateMoneyViews(queryClient),
+  });
+}
+
+// ---------- staff ----------
+
+const STAFF_QUERY_ROOTS = ["staffMe", "staffNeeds", "staffNeed", "actions", "invoices"] as const;
+
+const isStaffQuery = (key: readonly unknown[]) => STAFF_QUERY_ROOTS.some((root) => root === key[0]);
+
+/** Sign-out and sign-in: nothing one charity's staff loaded may show to the next person at this screen. */
+export function clearStaffQueries(queryClient: QueryClient): void {
+  void queryClient.cancelQueries({ predicate: (query) => isStaffQuery(query.queryKey) });
+  queryClient.removeQueries({ predicate: (query) => isStaffQuery(query.queryKey) });
+}
+
+/** `GET /api/staff/me`: whose console this is. StaffGate calls it once; everything else reads the cache. */
+export function useStaffMe() {
+  return useQuery({
+    queryKey: queryKeys.staffMe(),
+    queryFn: ({ signal }) => apiGet(paths.staff.me, StaffMeRes, { staff: true, signal }),
+  });
+}
+
+/** `GET /api/staff/needs?status=`: includes drafts. No status = every need of the charity. */
+export function useStaffNeeds(status?: NeedStatus) {
+  return useQuery({
+    queryKey: queryKeys.staffNeeds(status),
+    queryFn: ({ signal }) =>
+      apiGet(status ? `${paths.staff.needs}?status=${status}` : paths.staff.needs, StaffNeedListRes, {
+        staff: true,
+        signal,
+      }),
+  });
+}
+
+export function useStaffNeed(id: string) {
+  return useQuery({
+    queryKey: queryKeys.staffNeed(id),
+    queryFn: ({ signal }) => apiGet(paths.staff.need(id), StaffNeedDetailRes, { staff: true, signal }),
+  });
+}
+
+/** A need changed: the staff lists, its detail pages and the public views of it are all out of date. */
+function invalidateNeedViews(queryClient: QueryClient, need: NeedCard): void {
+  void queryClient.invalidateQueries({ queryKey: ["staffNeeds"] });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.staffNeed(need.id) });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.need(need.id) });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.org(need.orgSlug) });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.orgs() });
+}
+
+/**
+ * `POST /api/staff/needs`. The server computes the target (unless staff override it) and the
+ * status; the browser sends the chosen product and details only. Never retried automatically.
+ */
+export function usePublishNeed() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (req: PublishNeedReq) => apiPost(paths.staff.needs, req, NeedRes, { staff: true }),
+    onSuccess: ({ need }) => invalidateNeedViews(queryClient, need),
+  });
+}
+
+/** `PATCH /api/staff/needs/:id` (publish a draft, edit, close). The server enforces every rule. */
+export function usePatchNeed() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: PatchNeedReq }) =>
+      apiPatch(paths.staff.need(id), patch, NeedRes, { staff: true }),
+    onSuccess: ({ need }) => invalidateNeedViews(queryClient, need),
+  });
+}
+
+/**
+ * `POST /api/staff/intake` (staff, 10 requests a minute). Photo or text in, draft needs out; nothing
+ * is saved. Pass `signal` to cancel while the AI is working (10 to 30 s).
+ */
+export function useIntake() {
+  return useMutation({
+    mutationFn: ({ req, signal }: { req: IntakeReq; signal?: AbortSignal }) =>
+      apiPost(paths.staff.intake, IntakeReq.parse(req), IntakeRes, { staff: true, signal }),
   });
 }

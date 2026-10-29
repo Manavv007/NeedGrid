@@ -75,3 +75,30 @@ export function formatNeededBy(iso: string | null, now: Date = new Date()): stri
   if (iso === null || new Date(iso).getTime() < now.getTime()) return null;
   return formatDeadline(iso, now);
 }
+
+/** Staff-facing urgency names (design-ref README): 3 = Urgent, 2 = Medium, 1 = Low. */
+export const STAFF_URGENCY_LABELS = { 1: "Low", 2: "Medium", 3: "Urgent" } as const;
+
+const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+
+/**
+ * "just now", "12 min ago", "2 h ago", "Yesterday", "3 days ago", then a date ("Oct 24") after a
+ * week. Used where staff want to know how fresh a row is.
+ */
+export function formatRelativeTime(iso: string, now: Date = new Date()): string {
+  const elapsed = now.getTime() - new Date(iso).getTime();
+  if (elapsed < MINUTE_MS) return "just now";
+  if (elapsed < HOUR_MS) return `${Math.floor(elapsed / MINUTE_MS)} min ago`;
+  if (elapsed < DAY_MS) return `${Math.floor(elapsed / HOUR_MS)} h ago`;
+  const days = Math.floor(elapsed / DAY_MS);
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days} days ago`;
+  return formatShortDate(iso);
+}
+
+/** "26¢ each" under a dollar, "$1.25 each" above (the price of one item in a pack). */
+export function formatPerItem(cents: number): string {
+  return cents < 100 ? `${cents}¢ each` : `${usdCents.format(cents / 100)} each`;
+}

@@ -9,7 +9,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { env, envResult } from "@/env";
 import { createQueryClient } from "@/lib/queryClient";
-import { setUnauthorizedHandler, STAFF_LOGIN_PATH } from "@/lib/unauthorized";
+import { registerUnauthorizedRedirect } from "@/lib/staffSession";
 import { ConfigErrorScreen } from "@/pages/ConfigErrorScreen";
 import { createAppRouter } from "@/router";
 
@@ -33,12 +33,13 @@ async function main(): Promise<void> {
   if (import.meta.env.VITE_USE_MOCKS === "true" && env.VITE_USE_MOCKS) await startMocks();
 
   const router = createAppRouter();
-  setUnauthorizedHandler(() => void router.navigate(STAFF_LOGIN_PATH, { replace: true }));
+  const queryClient = createQueryClient();
+  registerUnauthorizedRedirect(router, queryClient);
 
   root.render(
     <StrictMode>
       <AppErrorBoundary>
-        <QueryClientProvider client={createQueryClient()}>
+        <QueryClientProvider client={queryClient}>
           <TooltipProvider>
             <RouterProvider router={router} />
           </TooltipProvider>
