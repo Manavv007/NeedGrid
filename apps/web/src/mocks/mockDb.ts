@@ -12,9 +12,18 @@
  *   `funded`. Overflow without consent stays unallocated (the server proposes a refund).
  *
  * Live updates: every change to a need's card (a hold from create order, a capture, a publish, a
- * staff edit) is sent to `subscribeNeedUpdates` listeners as `NeedCard` JSON, like the API's
+ * staff edit, a purchase approval or order) is sent to `subscribeNeedUpdates` listeners as `NeedCard` JSON, like the API's
  * `need.updated` SSE event (core/needs.ts → publishNeedUpdated: drafts are never sent). The state
  * lives in this tab, so mock live updates only reach screens in the same tab.
+ *
+ * The ledger: every fixture need's funded amount starts as `donorCount` seed donations with matching
+ * allocations, and `allocate` is the only code that moves `fundedCents` (with a signed allocation), so
+ * funded always equals the sum of a need's allocations, like A's money invariants (`moneyProblems`).
+ *
+ * Purchases mirror B's purchase-plan route (AGENT_B_AI_DATA.md §9.3) and A's approve / mark-ordered
+ * rules (AGENT_A_BACKEND.md §8.5): plan only while `funded`; approve a `proposed` plan only while
+ * `funded` (surplus → `price_drop` moves to the next most urgent needs, gap → `topping_up`); mark
+ * ordered only while `funded` with an `approved` purchase.
  */
 import {
   clampDonation,
@@ -23,14 +32,18 @@ import {
   formatUsd,
   HOLD_MINUTES,
   MIN_DONATION_CENTS,
+  planPurchaseMoney,
   remainingCents,
   splitCapture,
+  takeFromAllocations,
   type AllocationReason,
+  type ApprovePurchaseRes,
   type CaptureRes,
   type CreateOrderReq,
   type CreateOrderRes,
   type ErrorCode,
   type ImpactRes,
+  type MarkOrderedReq,
   type NeedCard,
   type NeedDetailRes,
   type NeedStatus,
@@ -39,7 +52,12 @@ import {
   type OrgStats,
   type OrgSummary,
   type PatchNeedReq,
+  type ProductSnapshot,
   type PublishNeedReq,
+  type PurchaseOffer,
+  type PurchasePlanRes,
+  type PurchaseRes,
+  type PurchaseView,
   type StaffNeedDetailRes,
   type TimelineEvent,
 } from "@needgrid/shared";
@@ -63,7 +81,16 @@ type Donation = {
   createdAt: string;
 };
 
-type Allocation = { donationId: string; needId: string; amountCents: number; reason: AllocationReason; at: string };
+type Allocation = {
+  donationId: string;
+  needId: string;
+  /** Signed: a price-drop move takes money off one need (negative) and gives it to another. */
+  amountCents: number;
+  reason: AllocationReason;
+  at: string;
+  /** Fixture history: already told by the fixture timeline, so `timelineOf` doesn't repeat it. */
+  seed: boolean;
+};
 
 type State = {
   orgs: OrgPublic[];
@@ -79,15 +106,41 @@ type State = {
   scenarios: Set<MockScenario>;
 };
 
+/**
+ * Each fixture need's funded amount as `donorCount` seed donations (like B's seed script), at the
+ * time of the fixture's donation event, a millisecond apart so "newest first" is well defined.
+ */
+function seedAllocations(needs: Iterable<fixtures.MockNeed>): Allocation[] {
+  const out: Allocation[] = [];
+  for (const need of needs) {
+    const { id, fundedCents, donorCount, createdAt } = need.card;
+    if (fundedCents <= 0 || donorCount <= 0) continue;
+    const startMs = Date.parse(need.timeline.find((e) => e.type === "donation")?.at ?? createdAt);
+    const share = Math.floor(fundedCents / donorCount);
+    for (let i = 0; i < donorCount; i++) {
+      out.push({
+        donationId: `seed-${id}-${i + 1}`,
+        needId: id,
+        amountCents: i === donorCount - 1 ? fundedCents - share * (donorCount - 1) : share,
+        reason: "direct",
+        at: new Date(startMs + i).toISOString(),
+        seed: true,
+      });
+    }
+  }
+  return out;
+}
+
 function freshState(): State {
+  const needs = new Map(fixtures.needs.map((n) => [n.card.id, structuredClone(n)]));
   return {
     orgs: structuredClone(fixtures.orgs),
-    needs: new Map(fixtures.needs.map((n) => [n.card.id, structuredClone(n)])),
+    needs,
     impacts: new Map(Object.entries(structuredClone(fixtures.impacts))),
     fixtureHeld: new Map(fixtures.needs.map((n) => [n.card.id, n.card.heldCents])),
     reservations: new Map(),
     donations: [],
-    allocations: [],
+    allocations: seedAllocations(needs.values()),
     fundedAt: new Map(),
     scenarios: new Set(),
   };
@@ -225,7 +278,7 @@ function timelineOf(need: fixtures.MockNeed): TimelineEvent[] {
   const events = need.timeline.filter((e) => e.type !== "topping_up" || need.card.status === "topping_up");
   const days = new Map<string, Allocation[]>();
   for (const a of state.allocations) {
-    if (a.needId !== id || a.amountCents <= 0) continue;
+    if (a.needId !== id || a.amountCents <= 0 || a.seed) continue;
     const day = a.at.slice(0, 10);
     days.set(day, [...(days.get(day) ?? []), a]);
   }
@@ -250,14 +303,26 @@ function timelineOf(need: fixtures.MockNeed): TimelineEvent[] {
 
 // ---------- money ----------
 
-/** Insert one allocation and move fundedCents with it (ledger.ts → allocate + refreshNeedStatus). */
-function allocate(donation: Donation, need: fixtures.MockNeed, cents: number, reason: AllocationReason): void {
+/** Distinct donations whose net allocation to the need is positive (core/needs.ts → donorCountSql). */
+function donorsOf(needId: string): number {
+  const net = new Map<string, number>();
+  for (const a of state.allocations) {
+    if (a.needId === needId) net.set(a.donationId, (net.get(a.donationId) ?? 0) + a.amountCents);
+  }
+  return [...net.values()].filter((cents) => cents > 0).length;
+}
+
+/**
+ * Insert one signed allocation and move fundedCents with it (ledger.ts → allocate + refreshNeedStatus).
+ * The only place that changes `fundedCents`.
+ */
+function allocate(donationId: string, need: fixtures.MockNeed, cents: number, reason: AllocationReason): void {
+  if (!Number.isSafeInteger(cents) || cents === 0) throw new Error(`allocate: invalid cents ${cents}`);
   const card = need.card;
-  const firstFromDonation = !state.allocations.some((a) => a.donationId === donation.id && a.needId === card.id);
   const at = nowIso();
-  state.allocations.push({ donationId: donation.id, needId: card.id, amountCents: cents, reason, at });
+  state.allocations.push({ donationId, needId: card.id, amountCents: cents, reason, at, seed: false });
   card.fundedCents += cents;
-  if (firstFromDonation) card.donorCount += 1;
+  card.donorCount = donorsOf(card.id);
   card.updatedAt = at;
   if (isDonatable(card.status) && card.targetCents > 0 && card.fundedCents >= card.targetCents) {
     card.status = "funded";
@@ -265,17 +330,30 @@ function allocate(donation: Donation, need: fixtures.MockNeed, cents: number, re
   }
 }
 
-/** Overflow to the org's most urgent needs, each up to its room. Returns what couldn't be placed. */
-function distribute(donation: Donation, orgId: string, cents: number, excludeNeedId: string): number {
+type Placement = { needId: string; cents: number };
+
+/**
+ * Give `cents` of one donation to the org's most urgent donatable needs, each up to its room
+ * (ledger.ts → distribute). Returns where it went and what couldn't be placed.
+ */
+function distribute(
+  donationId: string,
+  orgId: string,
+  cents: number,
+  excludeNeedId: string,
+  reason: AllocationReason,
+): { leftCents: number; placed: Placement[] } {
   let left = cents;
+  const placed: Placement[] = [];
   for (const candidate of donatableNeeds(orgId, excludeNeedId, OVERFLOW_NEEDS_MAX)) {
     if (left === 0) break;
     const give = Math.min(left, roomFor(candidate));
     if (give <= 0) continue;
-    allocate(donation, candidate, give, "overflow");
+    allocate(donationId, candidate, give, reason);
+    placed.push({ needId: candidate.card.id, cents: give });
     left -= give;
   }
-  return left;
+  return { leftCents: left, placed };
 }
 
 /** What one donation paid for, per need and reason, in placement order (capture.ts → buildCaptureRes). */
@@ -348,6 +426,86 @@ function checkMinTarget(targetCents: number): StaffRefusal | null {
 /** Statuses where a need can still be edited and its target changed (core/needs.ts). */
 const EDITABLE_TARGET: NeedStatus[] = ["draft", "open", "topping_up", "funded"];
 const PRE_FUNDING: NeedStatus[] = ["draft", "open", "topping_up"];
+
+// ---------- purchases ----------
+
+export type PurchasePlanResult = { kind: "ok"; plan: PurchasePlanRes } | { kind: "notFound" } | StaffRefusal;
+export type ApprovePurchaseResult = { kind: "ok"; approval: ApprovePurchaseRes } | { kind: "notFound" } | StaffRefusal;
+export type MarkOrderedResult = { kind: "ok"; ordered: PurchaseRes } | { kind: "notFound" } | StaffRefusal;
+
+export const MANUAL_PRODUCT_FLAG = "Price not refreshed: manual product";
+const statusWords = (status: NeedStatus) => status.replace("_", " ");
+
+/** One purchase of the caller's org, with its need. Another org's purchase is "not found". */
+function findPurchase(orgId: string, purchaseId: string): { need: fixtures.MockNeed; purchase: PurchaseView } | null {
+  for (const need of state.needs.values()) {
+    if (need.card.orgId !== orgId) continue;
+    const purchase = need.purchases.find((p) => p.id === purchaseId);
+    if (purchase) return { need, purchase };
+  }
+  return null;
+}
+
+/**
+ * B's price refresh: the same product's offer today and other offers. Hand-written (`manual-`)
+ * products are never refreshed: the stored snapshot is the offer and there are no alternatives.
+ */
+function priceCheck(need: fixtures.MockNeed, product: ProductSnapshot) {
+  if (product.channel3Id.startsWith(fixtures.MANUAL_PRODUCT_PREFIX)) {
+    return { offer: fixtures.toOffer(product), alternatives: [], refreshed: false };
+  }
+  const id = need.card.id;
+  const offer = fixtures.freshOffers[id] ?? fixtures.toOffer(product);
+  const alternatives = fixtures.freshAlternatives[id] ?? need.alternatives.map(fixtures.toOffer);
+  return { offer, alternatives: alternatives.slice(0, 3), refreshed: true };
+}
+
+/** Deterministic chips, like B's: "Price dropped 8%", "Price rose $0.80", "In stock". */
+function planFlags(postedCents: number, offer: PurchaseOffer, refreshed: boolean): string[] {
+  if (!refreshed) return [MANUAL_PRODUCT_FLAG];
+  const flags: string[] = [];
+  const diff = offer.unitPriceCents - postedCents;
+  if (diff < 0) {
+    const percent = Math.round((-diff * 100) / postedCents);
+    flags.push(percent >= 1 ? `Price dropped ${percent}%` : `Price dropped ${formatUsd(-diff)}`);
+  } else if (diff > 0) {
+    flags.push(`Price rose ${formatUsd(diff)}`);
+  }
+  if (offer.inStock === true) flags.push("In stock");
+  if (offer.inStock === false) flags.push(`Out of stock at ${offer.retailer}`);
+  return flags;
+}
+
+/** Stands in for B's short AI explanation (it only restates the computed facts). */
+function planExplanation(need: fixtures.MockNeed, postedCents: number, offer: PurchaseOffer, refreshed: boolean) {
+  const unit = need.card.unit;
+  if (!refreshed) {
+    return `This product was entered by hand, so there is no live price to check. The plan uses the ${formatUsd(postedCents)} price saved when the need was posted.`;
+  }
+  const diff = offer.unitPriceCents - postedCents;
+  if (diff < 0) {
+    return `Same product as posted, now ${formatUsd(-diff)} cheaper per ${unit} at ${offer.retailer}. It shows as in stock.`;
+  }
+  if (diff > 0) {
+    return `Same product as posted, but ${offer.retailer} now charges ${formatUsd(diff)} more per ${unit}. The other offers are different products.`;
+  }
+  return `Same product and price as posted. ${offer.retailer} shows it in stock.`;
+}
+
+/** The approved offer becomes the need's product (core: "need.product = offer, fetchedAt now"). */
+function snapshotOf(offer: PurchaseOffer, previous: ProductSnapshot | null, fetchedAt: string): ProductSnapshot {
+  return {
+    channel3Id: offer.channel3Id,
+    title: offer.title,
+    imageUrl: offer.imageUrl,
+    retailer: offer.retailer,
+    url: offer.url,
+    unitPriceCents: offer.unitPriceCents,
+    packSize: previous?.channel3Id === offer.channel3Id ? previous.packSize : null,
+    inStock: offer.inStock,
+    fetchedAt,
+  };
+}
 
 export const mockDb = {
   /** Back to the fixtures (tests call this between cases). */
@@ -485,9 +643,9 @@ export const mockDb = {
 
     // Room on the tile, ignoring this donation's own hold (it is being converted now).
     const { directCents, overflowCents } = splitCapture(reservation.amountCents, roomFor(need, orderId));
-    if (directCents > 0) allocate(donation, need, directCents, "direct");
+    if (directCents > 0) allocate(donation.id, need, directCents, "direct");
     if (overflowCents > 0 && reservation.rollOverConsent) {
-      distribute(donation, need.card.orgId, overflowCents, need.card.id);
+      distribute(donation.id, need.card.orgId, overflowCents, need.card.id, "overflow");
     }
     reservation.status = "converted";
     // The tile (its hold is gone even if nothing fit) and every need the overflow reached.
@@ -516,7 +674,7 @@ export const mockDb = {
     return {
       need: cardOf(need),
       alternatives: need.alternatives,
-      purchases: need.purchases,
+      purchases: need.purchases.map((p) => ({ ...p })),
       delivery: need.deliveryView,
       timeline: timelineOf(need),
     };
@@ -653,5 +811,168 @@ export const mockDb = {
       publishNeedUpdated(id);
     }
     return { kind: "ok", need: cardOf(need) };
+  },
+
+  /**
+   * POST /api/staff/needs/:id/purchase-plan (B's route, AGENT_B_AI_DATA.md §9.3). Funded needs only.
+   * Creates a `proposed` purchase for today's offer (older proposed ones become `superseded`); the
+   * money outcome is `planPurchaseMoney(funded, computeTargetCents(offer price, quantity))`, and a
+   * surplus names the org's next most urgent donatable need. Nothing moves until approval.
+   */
+  planPurchase(orgId: string, needId: string): PurchasePlanResult {
+    const need = state.needs.get(needId);
+    if (!need || need.card.orgId !== orgId) return { kind: "notFound" };
+    const { card } = need;
+    if (card.status !== "funded" || !card.product) {
+      return invalidState(
+        `The price can only be checked once the item is fully funded (it is ${statusWords(card.status)} now)`,
+      );
+    }
+    const posted = card.product.unitPriceCents;
+    const { offer, alternatives, refreshed } = priceCheck(need, card.product);
+    const newTargetCents = computeTargetCents(offer.unitPriceCents, card.quantity);
+    const money = planPurchaseMoney(card.fundedCents, newTargetCents);
+
+    for (const p of need.purchases) if (p.status === "proposed") p.status = "superseded";
+    const purchase: PurchaseView = {
+      id: crypto.randomUUID(),
+      needId,
+      status: "proposed",
+      offer,
+      newTargetCents,
+      explanation: planExplanation(need, posted, offer, refreshed),
+      flags: planFlags(posted, offer, refreshed),
+      orderRef: null,
+      createdAt: nowIso(),
+      approvedAt: null,
+      orderedAt: null,
+    };
+    need.purchases.unshift(purchase);
+
+    const priceChange = offer.unitPriceCents < posted ? "cheaper" : offer.unitPriceCents > posted ? "pricier" : "same";
+    return {
+      kind: "ok",
+      plan: {
+        purchase: { ...purchase },
+        priceChange,
+        money: money.kind === "surplus" ? { ...money, nextNeed: nextMostUrgentNeed(card.orgId, needId) } : money,
+        alternatives,
+      },
+    };
+  },
+
+  /**
+   * POST /api/staff/purchases/:id/approve (A's money/purchases.ts, §8.5). The purchase must be
+   * `proposed` and its need `funded`. Surplus: taken back from the need's donations (newest first) and
+   * given to the org's most urgent needs as `price_drop`; what finds no room stays on this need.
+   * Gap: the need goes back to `topping_up`. Then target = new target, product = the offer, the
+   * purchase is `approved` and other proposals are `superseded`. Every touched need is broadcast.
+   */
+  approvePurchase(orgId: string, purchaseId: string): ApprovePurchaseResult {
+    const found = findPurchase(orgId, purchaseId);
+    if (!found) return { kind: "notFound" };
+    const { need, purchase } = found;
+    const { card } = need;
+    if (purchase.status !== "proposed") return invalidState(`This purchase plan is ${purchase.status} already`);
+    if (card.status !== "funded") {
+      return invalidState(
+        `A purchase can only be approved while the item is funded (it is ${statusWords(card.status)} now)`,
+      );
+    }
+    if (need.purchases.some((p) => p.status === "approved")) {
+      return invalidState("This need already has an approved purchase");
+    }
+
+    const money = planPurchaseMoney(card.fundedCents, purchase.newTargetCents);
+    const placed: Placement[] = [];
+    if (money.kind === "surplus") {
+      const own = state.allocations
+        .filter((a) => a.needId === card.id)
+        .map((a) => ({ donationId: a.donationId, amountCents: a.amountCents, createdAt: a.at }));
+      for (const take of takeFromAllocations(own, money.cents)) {
+        allocate(take.donationId, need, -take.amountCents, "price_drop");
+        const moved = distribute(take.donationId, card.orgId, take.amountCents, card.id, "price_drop");
+        placed.push(...moved.placed);
+        // No other need had room: that part stays on this item (staff can buy extra).
+        if (moved.leftCents > 0) allocate(take.donationId, need, moved.leftCents, "price_drop");
+      }
+    }
+
+    const at = nowIso();
+    card.targetCents = purchase.newTargetCents;
+    card.product = snapshotOf(purchase.offer, card.product, at);
+    if (money.kind === "gap") card.status = "topping_up";
+    card.updatedAt = at;
+    purchase.status = "approved";
+    purchase.approvedAt = at;
+    for (const p of need.purchases) if (p.status === "proposed") p.status = "superseded";
+    need.timeline.push({
+      type: "purchase_approved",
+      at,
+      label: `Purchase approved at ${purchase.offer.retailer}`,
+      amountCents: null,
+    });
+    if (money.kind === "gap") {
+      need.timeline.push({
+        type: "topping_up",
+        at,
+        label: `The price went up: ${formatUsd(money.cents)} more needed`,
+        amountCents: money.cents,
+      });
+    }
+
+    const touched = [...new Set([card.id, ...placed.map((p) => p.needId)])];
+    for (const id of touched) publishNeedUpdated(id);
+    const first = placed[0];
+    const firstNeed = first ? state.needs.get(first.needId) : undefined;
+    return {
+      kind: "ok",
+      approval: {
+        purchase: { ...purchase },
+        need: cardOf(need),
+        // One target need in the contract: the most urgent one, with everything that moved.
+        surplusMoved:
+          first && firstNeed
+            ? {
+                toNeedId: first.needId,
+                toNeedTitle: firstNeed.card.title,
+                amountCents: placed.reduce((sum, p) => sum + p.cents, 0),
+              }
+            : null,
+        gapCents: money.kind === "gap" ? money.cents : null,
+      },
+    };
+  },
+
+  /** POST /api/staff/purchases/:id/ordered: need `funded` and purchase `approved` → both `ordered`. */
+  markOrdered(orgId: string, purchaseId: string, req: MarkOrderedReq): MarkOrderedResult {
+    const found = findPurchase(orgId, purchaseId);
+    if (!found) return { kind: "notFound" };
+    const { need, purchase } = found;
+    if (need.card.status !== "funded" || purchase.status !== "approved") {
+      return invalidState("Only an approved purchase for a fully funded item can be marked as ordered");
+    }
+    const at = nowIso();
+    purchase.status = "ordered";
+    purchase.orderRef = req.orderRef;
+    purchase.orderedAt = at;
+    need.card.status = "ordered";
+    need.card.updatedAt = at;
+    need.timeline.push({ type: "ordered", at, label: "Ordered", amountCents: null });
+    publishNeedUpdated(need.card.id);
+    return { kind: "ok", ordered: { purchase: { ...purchase }, need: cardOf(need) } };
+  },
+
+  /**
+   * Money invariant (A's check:money): every need's funded amount equals the sum of its allocations.
+   * Returns what is broken; tests expect an empty list after every money operation.
+   */
+  moneyProblems(): string[] {
+    const sums = new Map<string, number>();
+    for (const a of state.allocations) sums.set(a.needId, (sums.get(a.needId) ?? 0) + a.amountCents);
+    return [...state.needs.values()].flatMap(({ card }) => {
+      const sum = sums.get(card.id) ?? 0;
+      return sum === card.fundedCents ? [] : [`${card.title}: funded ${card.fundedCents}, allocations ${sum}`];
+    });
   },
 };

@@ -60,6 +60,11 @@ type ProductSeed = {
   packSize: number | null;
   /** Mock image name in public/mock, or null to show the design's grey placeholder. */
   image: string | null;
+  /**
+   * Hand-written product (groceries Channel3 doesn't sell, NOTES.md decisions): its id becomes
+   * `manual-<slug>` and the purchase plan never refreshes its price.
+   */
+  manual?: string;
 };
 
 type NeedSeed = {
@@ -96,7 +101,7 @@ type NeedSeed = {
 function productSnapshot(p: ProductSeed, fetchedAt: string, id: string): ProductSnapshot {
   const [host, query] = p.search;
   return ProductSnapshot.parse({
-    channel3Id: `c3_${id.slice(-6)}_${p.retailer.toLowerCase()}`,
+    channel3Id: p.manual ? `${MANUAL_PRODUCT_PREFIX}${p.manual}` : `c3_${id.slice(-6)}_${p.retailer.toLowerCase()}`,
     title: p.title,
     imageUrl: p.image ? mockImage(p.image) : null,
     retailer: p.retailer,
@@ -108,7 +113,11 @@ function productSnapshot(p: ProductSeed, fetchedAt: string, id: string): Product
   });
 }
 
-function toOffer(p: ProductSnapshot): PurchaseOffer {
+/** Hand-written products have ids like `manual-jif-creamy-peanut-butter-40-oz` (NOTES.md decisions). */
+export const MANUAL_PRODUCT_PREFIX = "manual-";
+
+/** A stored product as a purchase offer (what a purchase plan buys). */
+export function toOffer(p: ProductSnapshot): PurchaseOffer {
   return PurchaseOffer.parse({
     channel3Id: p.channel3Id,
     title: p.title,
@@ -285,6 +294,7 @@ const NEED_SEEDS: NeedSeed[] = [
       unitPriceCents: 254,
       packSize: null,
       image: "food",
+      manual: "great-value-chunk-chicken-breast-12-5-oz",
     },
     deadlineAt: rel(5, "21:00"),
     createdAt: rel(-6, "10:15"),
@@ -310,6 +320,7 @@ const NEED_SEEDS: NeedSeed[] = [
       unitPriceCents: 568,
       packSize: null,
       image: null,
+      manual: "jif-creamy-peanut-butter-40-oz",
     },
     deadlineAt: rel(16, "21:00"),
     createdAt: rel(-6, "10:16"),
@@ -360,6 +371,7 @@ const NEED_SEEDS: NeedSeed[] = [
       unitPriceCents: 524,
       packSize: null,
       image: "food",
+      manual: "quaker-old-fashioned-oats-42-oz",
     },
     deadlineAt: rel(27, "21:00"),
     createdAt: rel(-5, "09:00"),
@@ -386,6 +398,7 @@ const NEED_SEEDS: NeedSeed[] = [
       unitPriceCents: 146,
       packSize: null,
       image: "food",
+      manual: "starkist-chunk-light-tuna-5-oz",
     },
     deadlineAt: null,
     createdAt: rel(-8, "11:00"),
@@ -1039,23 +1052,24 @@ const NEED_SEEDS: NeedSeed[] = [
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000307",
     org: "room12",
-    title: "Kids' headphones",
-    description: "For the reading app on our classroom tablets.",
-    category: "school",
+    title: "Snacks for reading club",
+    description: "Friday reading club runs into lunch, and some of our readers skip breakfast.",
+    category: "food",
     urgency: 2,
-    quantity: 10,
-    unit: "pair",
+    quantity: 4,
+    unit: "box of 30 packs",
     status: "funded",
-    fundedCents: 14100,
+    fundedCents: 5700,
     heldCents: 0,
-    donorCount: 7,
+    donorCount: 4,
     product: {
-      title: "Kids Wired Headphones with 85 dB Volume Limit",
-      retailer: "Amazon",
-      search: ["www.amazon.com", "kids wired headphones volume limit"],
-      unitPriceCents: 1299,
-      packSize: null,
-      image: "school",
+      title: "Pepperidge Farm Goldfish Cheddar Crackers, 30 Snack Packs",
+      retailer: "Walmart",
+      search: ["www.walmart.com", "goldfish cheddar crackers 30 snack packs"],
+      unitPriceCents: 1298,
+      packSize: 30,
+      image: "food",
+      manual: "goldfish-cheddar-30-snack-packs",
     },
     deadlineAt: null,
     createdAt: rel(-10, "14:00"),
@@ -1299,7 +1313,7 @@ function buildPurchases(s: NeedSeed, card: NeedCard, product: ProductSnapshot): 
       explanation: pricier
         ? `Same product as posted, but ${product.retailer} now charges more per unit. The tile asks donors for the difference.`
         : `Same product and pack size as posted. ${product.retailer} shows it in stock.`,
-      flags: pricier ? ["price went up"] : ["in stock"],
+      flags: pricier ? ["Price went up", "In stock"] : ["In stock"],
       orderRef: s.orderRef ?? null,
       createdAt: s.approvedAt,
       approvedAt: s.approvedAt,
@@ -1375,20 +1389,100 @@ function fixtureNeed(id: string): MockNeed {
 
 // ---------- fresh prices (purchase plan, C-7) ----------
 
+type OfferSeed = { title: string; retailer: string; search: [host: string, query: string]; unitPriceCents: number };
+
+/** What one fresh price check finds for a need: today's price of the same product, and other offers. */
+type PriceCheckSeed = { id: string; unitPriceCents: number; alternatives: OfferSeed[] };
+
+function offerFrom(seed: OfferSeed, image: string | null): PurchaseOffer {
+  const [host, query] = seed.search;
+  return PurchaseOffer.parse({
+    channel3Id: `c3_offer_${query.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}`,
+    title: seed.title,
+    retailer: seed.retailer,
+    url: `https://${host}/search?q=${encodeURIComponent(query)}`,
+    imageUrl: image ? mockImage(image) : null,
+    unitPriceCents: seed.unitPriceCents,
+    inStock: true,
+  });
+}
+
 /**
- * What a fresh Channel3 price check returns per need. Laundry detergent is funded and now cheaper
- * (surplus moves to the next need); Diapers, size 4 matches the PurchasePlan design once it's funded.
+ * Deterministic price checks, one per money outcome (planPurchaseMoney on the need's funded amount):
+ * - Laundry detergent: cheaper, $95 raised vs $88 new cost → $7 surplus to the next need (demo scene).
+ * - Kids' toothbrushes: pricier, $38 raised vs $41 → a $3 gap, the tile goes back to donors.
+ * - Enzyme cleaner: 10¢ cheaper, but the new cost still rounds to the $108 raised → exact.
+ * - Diapers, size 4: cheaper once it's funded (PurchasePlan.dc.html).
+ * Hand-written products (Snacks for reading club) are never refreshed: same price, exact.
  */
+const PRICE_CHECKS: PriceCheckSeed[] = [
+  {
+    id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000110",
+    unitPriceCents: 1349,
+    alternatives: [
+      {
+        title: "Gain Original Liquid Laundry Detergent, 88 fl oz",
+        retailer: "Walmart",
+        search: ["www.walmart.com", "gain original liquid detergent 88 oz"],
+        unitPriceCents: 1297,
+      },
+      {
+        title: "Persil ProClean Original Liquid Detergent, 82.5 fl oz",
+        retailer: "Amazon",
+        search: ["www.amazon.com", "persil proclean original 82.5 oz"],
+        unitPriceCents: 1499,
+      },
+    ],
+  },
+  {
+    id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000109",
+    unitPriceCents: 949,
+    alternatives: [
+      {
+        title: "Oral-B Kids Extra Soft Toothbrushes, 12 Pack",
+        retailer: "Walmart",
+        search: ["www.walmart.com", "oral-b kids extra soft toothbrush 12 pack"],
+        unitPriceCents: 847,
+      },
+      {
+        title: "Amazon Basics Kids Soft Toothbrushes, 12 Pack",
+        retailer: "Amazon",
+        search: ["www.amazon.com", "amazon basics kids soft toothbrush 12 pack"],
+        unitPriceCents: 799,
+      },
+    ],
+  },
+  {
+    id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000208",
+    unitPriceCents: 2489,
+    alternatives: [
+      {
+        title: "Simple Solution Pet Stain and Odor Remover, 1 gal",
+        retailer: "Amazon",
+        search: ["www.amazon.com", "simple solution stain odor remover gallon"],
+        unitPriceCents: 2399,
+      },
+    ],
+  },
+  { id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000101", unitPriceCents: 3699, alternatives: [] },
+];
+
+/** Today's offer for the need's own product, per need id (only needs whose price moved, or was checked). */
 export const freshOffers: Record<string, PurchaseOffer> = Object.fromEntries(
-  [
-    { id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000110", unitPriceCents: 1349 },
-    { id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000101", unitPriceCents: 3699 },
-  ].map(({ id, unitPriceCents }) => {
+  PRICE_CHECKS.map(({ id, unitPriceCents }) => {
     const { product } = fixtureNeed(id).card;
     if (!product) throw new Error(`Mock fixture need ${id} has no product`);
-    const offer = PurchaseOffer.parse({ ...toOffer(product), unitPriceCents });
-    if (offer.unitPriceCents >= product.unitPriceCents) throw new Error("fresh offer must be cheaper");
-    return [id, offer];
+    if (product.channel3Id.startsWith(MANUAL_PRODUCT_PREFIX)) throw new Error("manual products are never refreshed");
+    return [id, PurchaseOffer.parse({ ...toOffer(product), unitPriceCents })];
+  }),
+);
+
+/** Other offers a price check finds per need id (up to 3, shown for comparison). */
+export const freshAlternatives: Record<string, PurchaseOffer[]> = Object.fromEntries(
+  PRICE_CHECKS.map(({ id, alternatives }) => {
+    const image = fixtureNeed(id).card.product?.imageUrl ?? null;
+    const name = image ? (/\/mock\/([a-z]+)\.svg$/.exec(image)?.[1] ?? null) : null;
+    return [id, alternatives.slice(0, 3).map((seed) => offerFrom(seed, name))];
   }),
 );
 

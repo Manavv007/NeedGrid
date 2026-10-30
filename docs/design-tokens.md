@@ -70,6 +70,16 @@ Warm, trustworthy, concrete. Real product photos are the hero; the UI stays calm
 - Big-screen ticker: `--staff-header` background, "Just now" pill in `--success`.
 - Big-screen mode scales every rem with the screen (`html[data-display="wall"]` in `globals.css`): 16 px at 1920×1080.
 
+## Added in C-7 (purchase plan)
+
+| Token | Hex | Use |
+|---|---|---|
+| `--warning-soft` | `#FFFBEB` | Background of the "Price now" box when the price went up (border `--warning`, text `--badge-warning-text`) |
+
+- Cheaper price: `--success` border on `--success-soft`, text `--badge-success-text`. Same price: the normal card border.
+- A locked step ("Unlocks after approval") has a dashed `--border-strong` border. Its text keeps full contrast; only the
+  disabled controls are dimmed.
+
 ## Status badges (background / text)
 
 | Status | Background | Text | CSS variables |

@@ -18,6 +18,11 @@ export function thanksPath(impactToken: string): string {
   return `/thanks/${encodeURIComponent(impactToken)}`;
 }
 
+/** Staff: one need's management page (edit, purchase plan, order, delivery). */
+export function staffNeedPath(needId: string): string {
+  return `/staff/needs/${encodeURIComponent(needId)}`;
+}
+
 /** The donor's impact page: their only way back, so it's also the link they save. */
 export function impactPath(impactToken: string): string {
   return `/impact/${encodeURIComponent(impactToken)}`;
