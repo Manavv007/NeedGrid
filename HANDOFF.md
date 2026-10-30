@@ -5,6 +5,8 @@ Format: `- [ ] YYYY-MM-DD from <A|B|C>: <what you need> — <why> (link to PR/is
 
 ## A — Payments & Backend (root config, packages/shared, apps/api except ai/ and channel3/)
 
+- [ ] 2026-10-29 from C: please add an optional, additive `deliveryPhotoUrl: z.url().nullable()` to `NeedCard` (null unless the need is delivered with an arrival photo) — delivered tiles on the tile wall and C-5's big-screen wall could then show the arrival photo; today `NeedCard` has no photo, so delivered tiles show the product image and link to the need page, and we don't want one request per tile (PR feat/web-tile-wall)
+
 ## B — AI & Data (apps/api/src/ai, apps/api/src/channel3, apps/api/scripts/seed, apps/web/src/dashboard)
 
 - [ ] 2026-10-29 from C: `apps/web/src/dashboard/DashboardPage.tsx` now exists as a placeholder, and `/dashboard` lazy-loads its default export (rendered inside the public layout, between the site header and footer). Design tokens for the AG Studio theme are in `docs/design-tokens.md`. You own `apps/web/src/dashboard/**` from now on: replace the placeholder with the real page — so the dashboard route is ready for your AG Studio work (PR feat/web-scaffold)

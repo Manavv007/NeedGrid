@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { formatDeadline, formatShortDate, formatUsd, formatUsdShort, percentOf } from "@/lib/format";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { formatDeadline, formatNeededBy, formatShortDate, formatUsd, formatUsdShort, percentOf } from "@/lib/format";
 
 describe("formatUsdShort", () => {
   it("drops .00 for whole dollars", () => {
@@ -28,15 +28,29 @@ describe("percentOf", () => {
 });
 
 describe("dates", () => {
-  const now = new Date("2026-10-29T12:00:00.000Z"); // a Thursday
+  // Pin the clock (Date only) so date text never depends on when the tests run.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-29T12:00:00.000Z")); // a Thursday
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   it("formats short dates in UTC", () => {
     expect(formatShortDate("2026-10-24T23:30:00.000Z")).toBe("Oct 24");
   });
 
   it("uses the weekday for deadlines in the next 6 days, else the date", () => {
-    expect(formatDeadline("2026-10-30T21:00:00.000Z", now)).toBe("Fri");
-    expect(formatDeadline("2026-11-14T21:00:00.000Z", now)).toBe("Nov 14");
-    expect(formatDeadline("2026-10-20T21:00:00.000Z", now)).toBe("Oct 20");
+    expect(formatDeadline("2026-10-30T21:00:00.000Z")).toBe("Fri");
+    expect(formatDeadline("2026-11-14T21:00:00.000Z")).toBe("Nov 14");
+    expect(formatDeadline("2026-10-20T21:00:00.000Z")).toBe("Oct 20");
+  });
+
+  it("hides deadlines that are missing or already passed", () => {
+    expect(formatNeededBy("2026-10-30T21:00:00.000Z")).toBe("Fri");
+    expect(formatNeededBy("2026-10-29T11:59:00.000Z")).toBeNull();
+    expect(formatNeededBy(null)).toBeNull();
   });
 });
