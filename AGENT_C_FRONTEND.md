@@ -1,5 +1,7 @@
 # NeedGrid — Agent Brief C: Frontend & Demo Lead
 
+> **Before each task, read `NOTES.md` (section 0 "Decisions" first) and your section of `HANDOFF.md`.** Decisions there override this brief.
+>
 > **Give this file to your coding agent as its main instruction.** Also read `NEEDGRID_DEV_PLAN.md` for product context, and §5 of `AGENT_A_BACKEND.md` for the full shared contract code (every type you render).
 > If they disagree: this file wins on *implementation details*, the plan wins on *scope and priorities*, and A's §5 code wins on *exact type/field names*.
 > Sibling briefs: `AGENT_A_BACKEND.md` (Payments & Backend), `AGENT_B_AI_DATA.md` (AI & Data). Sections 2–4 are identical in all three files.
