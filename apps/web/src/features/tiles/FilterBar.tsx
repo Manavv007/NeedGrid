@@ -63,7 +63,8 @@ export function FilterBar({ filters, counts, categories, onChange }: FilterBarPr
             </Chip>
           ))}
         </div>
-        <span aria-hidden="true" className="mx-1 h-6 w-px bg-border-strong" />
+        {/* Phones: the chips wrap, and a divider would start a row on its own. */}
+        <span aria-hidden="true" className="mx-1 hidden h-6 w-px bg-border-strong sm:block" />
         <Chip urgent pressed={filters.urgentOnly} onClick={() => onChange({ urgentOnly: !filters.urgentOnly })}>
           <TriangleAlert aria-hidden="true" className="size-3" strokeWidth={2.5} />
           Urgent only
@@ -112,7 +113,8 @@ function SortSelect({ value, onChange, className }: SortSelectProps) {
           const next = SORTS.find((sort) => sort === event.target.value);
           if (next) onChange(next);
         }}
-        className="h-11 rounded-md border border-border-strong bg-surface px-2 text-sm text-foreground"
+        // 16 px on phones: iOS zooms the page into any smaller form control.
+        className="h-11 rounded-md border border-border-strong bg-surface px-2 text-base text-foreground sm:text-sm"
       >
         {SORTS.map((sort) => (
           <option key={sort} value={sort}>

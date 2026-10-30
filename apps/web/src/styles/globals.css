@@ -49,6 +49,9 @@
   --quote-text: #134e4a;
   --confirming-track: #fde68a;
 
+  /* Added in C-5 (live updates, big screen) */
+  --reconnecting-dot: #fbbf24;
+
   /* Status badges (background / text) */
   --badge-urgent-bg: #fdebdd;
   --badge-urgent-text: #9a3412;
@@ -146,6 +149,7 @@
   --color-quote-bg: var(--quote-bg);
   --color-quote-text: var(--quote-text);
   --color-confirming-track: var(--confirming-track);
+  --color-reconnecting-dot: var(--reconnecting-dot);
   --color-badge-urgent-bg: var(--badge-urgent-bg);
   --color-badge-urgent-text: var(--badge-urgent-text);
   --color-badge-medium-bg: var(--badge-medium-bg);
@@ -167,6 +171,28 @@
   background-image: repeating-linear-gradient(45deg, var(--held) 0 4px, var(--held-stripe) 4px 8px);
 }
 
+/* A tile that was just funded: two soft green rings spread out and fade (none with reduced motion). */
+@theme {
+  --animate-just-funded: just-funded 1.2s ease-out 2;
+
+  @keyframes just-funded {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 40%, transparent);
+    }
+    100% {
+      box-shadow: 0 0 0 0.75rem transparent;
+    }
+  }
+}
+
+/*
+ * Big-screen mode (/o/:slug?display=1) sets data-display="wall" on <html>: every rem then scales
+ * with the screen, so the 1920×1080 design (16 px = 1 rem) also fits 1280×720 and 4K.
+ */
+html[data-display="wall"] {
+  font-size: clamp(10px, min(100vw / 120, 100vh / 67.5), 32px);
+}
+
 @layer base {
   * {
     @apply border-border;
@@ -176,6 +202,9 @@
     @apply bg-background font-sans text-foreground antialiased;
     /* Money everywhere: digits line up. */
     font-variant-numeric: tabular-nums;
+    /* Landscape iPhones: keep content clear of the notch (index.html uses viewport-fit=cover). */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
   }
 
   a {

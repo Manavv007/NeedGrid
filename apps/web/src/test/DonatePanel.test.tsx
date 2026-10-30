@@ -86,8 +86,17 @@ describe("DonatePanel with the mock PayPal button", () => {
 
   it("shows the server's clamped amount while confirming and again on the thank-you page", async () => {
     const { pay } = await openPanel();
-    // Another donor starts paying $10 after this page loaded: only $4 is left on the server.
-    mockDb.createOrder({ needId: DIAPERS, amountCents: 1000, rollOverConsent: true });
+    // Another donor starts paying $10 a moment before this donor's order reaches the server (too late
+    // for the live update to reach the panel): only $4 is left on the server.
+    server.use(
+      http.post(
+        CREATE_ROUTE,
+        () => {
+          mockDb.createOrder({ needId: DIAPERS, amountCents: 1000, rollOverConsent: true });
+        },
+        { once: true },
+      ),
+    );
     let release = () => undefined as void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;

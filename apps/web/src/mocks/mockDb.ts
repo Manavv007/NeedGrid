@@ -10,6 +10,11 @@
  *   the tile is `direct`, the rest (with consent) is `overflow` to the org's most urgent needs,
  *   each filled up to its room (other donors' holds respected). A need reaching its target turns
  *   `funded`. Overflow without consent stays unallocated (the server proposes a refund).
+ *
+ * Live updates: every change to a need's card (a hold from create order, a capture, a publish, a
+ * staff edit) is sent to `subscribeNeedUpdates` listeners as `NeedCard` JSON, like the API's
+ * `need.updated` SSE event (core/needs.ts → publishNeedUpdated: drafts are never sent). The state
+ * lives in this tab, so mock live updates only reach screens in the same tab.
  */
 import {
   clampDonation,
@@ -90,6 +95,12 @@ function freshState(): State {
 
 let state = freshState();
 
+/** `data` of a `need.updated` event: one NeedCard as JSON, exactly what the SSE route writes. */
+export type NeedUpdatedListener = (data: string) => void;
+
+/** Per org slug. Outside `state`, so `reset` (between tests) doesn't drop open tile walls. */
+const needListeners = new Map<string, Set<NeedUpdatedListener>>();
+
 /** Statuses hidden from the public site (same as the API). */
 const NOT_PUBLIC: NeedStatus[] = ["draft", "closed"];
 const FUNDED_STATUSES: NeedStatus[] = ["funded", "ordered", "delivered"];
@@ -148,6 +159,22 @@ function heldFor(needId: string, excludeOrderId?: string): number {
 function cardOf(need: fixtures.MockNeed): NeedCard {
   const heldCents = heldFor(need.card.id);
   return { ...need.card, heldCents, remainingCents: remainingCents({ ...need.card, heldCents }) };
+}
+
+/** Like the API's publishNeedUpdated: the need's current card to its org's open screens, never a draft. */
+function publishNeedUpdated(needId: string): void {
+  const need = state.needs.get(needId);
+  if (!need || need.card.status === "draft") return;
+  const card = cardOf(need);
+  const data = JSON.stringify(card);
+  for (const listener of [...(needListeners.get(card.orgSlug) ?? [])]) {
+    try {
+      listener(data);
+    } catch (error) {
+      // A broken screen must not fail the request that changed the need (same rule as the API).
+      console.error("[mocks] a need.updated listener failed", error);
+    }
+  }
 }
 
 /** Room left on a need: target − funded − holds, and 0 unless it accepts donations (ledger.ts → roomCents). */
@@ -333,6 +360,20 @@ export const mockDb = {
     state.scenarios.add(scenario);
   },
 
+  /**
+   * In-page stand-in for `GET /api/orgs/:slug/stream`: `listener` gets each `need.updated` payload
+   * for that org. Returns the unsubscribe function.
+   */
+  subscribeNeedUpdates(orgSlug: string, listener: NeedUpdatedListener): () => void {
+    const listeners = needListeners.get(orgSlug) ?? new Set<NeedUpdatedListener>();
+    listeners.add(listener);
+    needListeners.set(orgSlug, listeners);
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0) needListeners.delete(orgSlug);
+    };
+  },
+
   /** True once per arming: the caller applies the scenario now. */
   takeScenario(scenario: MockScenario): boolean {
     return state.scenarios.delete(scenario);
@@ -393,6 +434,7 @@ export const mockDb = {
           expiresAtMs: Date.now() + HOLD_MINUTES * 60_000,
           status: "active",
         });
+        publishNeedUpdated(need.card.id);
       }
     }
 
@@ -409,6 +451,7 @@ export const mockDb = {
       expiresAtMs,
       status: "active",
     });
+    publishNeedUpdated(need.card.id); // other screens now show the amount on hold
     return {
       kind: "ok",
       order: {
@@ -447,6 +490,10 @@ export const mockDb = {
       distribute(donation, need.card.orgId, overflowCents, need.card.id);
     }
     reservation.status = "converted";
+    // The tile (its hold is gone even if nothing fit) and every need the overflow reached.
+    const touched = new Set([need.card.id]);
+    for (const a of state.allocations) if (a.donationId === donation.id) touched.add(a.needId);
+    for (const needId of touched) publishNeedUpdated(needId);
     return { kind: "ok", capture: captureResOf(donation) };
   },
 
@@ -518,6 +565,7 @@ export const mockDb = {
       deliveryView: null,
     };
     state.needs.set(card.id, created);
+    publishNeedUpdated(card.id); // drafts stay private: nothing is sent for them
     return { kind: "ok", need: cardOf(created) };
   },
 
@@ -602,6 +650,7 @@ export const mockDb = {
       if (nextStatus === "closed") {
         need.timeline.push({ type: "closed", at, label: "Closed", amountCents: null });
       }
+      publishNeedUpdated(id);
     }
     return { kind: "ok", need: cardOf(need) };
   },

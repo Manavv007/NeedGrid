@@ -25,7 +25,11 @@ const DONE_NOTE = {
 // Phone badges are a size smaller so they fit beside the title (TileWallPhone.dc.html).
 const BADGE_SIZE = "px-2 py-0.5 text-[11px] sm:px-2.5 sm:py-1 sm:text-xs";
 
-type TileCardProps = { need: NeedCard };
+type TileCardProps = {
+  need: NeedCard;
+  /** Just became funded: a brief green highlight (no animation with reduced motion). */
+  highlight?: boolean;
+};
 
 /**
  * One need on the tile wall. Under 640 px it is the compact horizontal card from
@@ -34,7 +38,7 @@ type TileCardProps = { need: NeedCard };
  * Links never nest: the title link stretches over the whole card with an ::after overlay, and the
  * fund / photo links sit above that overlay (`relative z-10`).
  */
-export function TileCard({ need }: TileCardProps) {
+export function TileCard({ need, highlight = false }: TileCardProps) {
   const titleId = useId();
   if (tabOf(need.status) === null) return null; // drafts and closed needs are never public
 
@@ -45,7 +49,11 @@ export function TileCard({ need }: TileCardProps) {
   return (
     <article
       aria-labelledby={titleId}
-      className="group relative flex flex-1 gap-3 rounded-xl border bg-surface p-3 transition-colors hover:border-border-strong sm:flex-col sm:gap-0 sm:p-0"
+      data-just-funded={highlight || undefined}
+      className={cn(
+        "group relative flex flex-1 gap-3 rounded-xl border bg-surface p-3 transition-colors hover:border-border-strong sm:flex-col sm:gap-0 sm:p-0",
+        highlight && "border-success hover:border-success motion-safe:animate-just-funded",
+      )}
     >
       <ProductImage product={need.product} />
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.75 sm:flex-col sm:flex-nowrap sm:items-stretch sm:gap-2.5 sm:px-4 sm:pt-3.5 sm:pb-4">

@@ -21,6 +21,7 @@ import {
 } from "@needgrid/shared";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { ApiClientError, apiGet, apiPatch, apiPost } from "./api";
+import { markOwnChange } from "./ownChanges";
 
 type AgentActionStatus = (typeof AGENT_ACTION_STATUSES)[number];
 
@@ -82,6 +83,9 @@ export function useCreateOrder() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (req: CreateOrderReq) => apiPost(paths.createOrder, req, CreateOrderRes),
+    // The hold this creates comes back as a live update; this tab doesn't need it announced.
+    onMutate: (req) => markOwnChange(req.needId),
+    onSettled: (_data, _error, req) => markOwnChange(req.needId),
     onSuccess: () => invalidateMoneyViews(queryClient),
     onError: (error) => {
       // Someone else funded it first: the page should show what the server knows now.
@@ -172,7 +176,10 @@ export function usePublishNeed() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (req: PublishNeedReq) => apiPost(paths.staff.needs, req, NeedRes, { staff: true }),
-    onSuccess: ({ need }) => invalidateNeedViews(queryClient, need),
+    onSuccess: ({ need }) => {
+      markOwnChange(need.id);
+      invalidateNeedViews(queryClient, need);
+    },
   });
 }
 
@@ -182,6 +189,9 @@ export function usePatchNeed() {
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: PatchNeedReq }) =>
       apiPatch(paths.staff.need(id), patch, NeedRes, { staff: true }),
+    // Staff hear live updates about other people's changes, not the edit they just made.
+    onMutate: ({ id }) => markOwnChange(id),
+    onSettled: (_data, _error, { id }) => markOwnChange(id),
     onSuccess: ({ need }) => invalidateNeedViews(queryClient, need),
   });
 }

@@ -1,12 +1,25 @@
 import { Link, Outlet } from "react-router";
 import { LogoMark } from "@/components/LogoMark";
+import { useIsBigScreen } from "@/features/bigscreen/bigScreenMode";
 
 const GITHUB_URL = "https://github.com/Manavv007/NeedGrid";
 
 const navLink = "inline-flex min-h-11 items-center text-muted-foreground no-underline hover:text-foreground";
 
-/** Donor-facing pages: header with the sandbox pill, content, footer (Main.dc.html / Landing.dc.html). */
+/**
+ * Donor-facing pages: header with the sandbox pill, content, footer (Main.dc.html / Landing.dc.html).
+ * The big-screen wall (`/o/:slug?display=1`) has no header or footer.
+ */
 export function PublicLayout() {
+  const bigScreen = useIsBigScreen();
+  if (bigScreen) {
+    return (
+      <main id="main" className="flex min-h-svh flex-col">
+        <Outlet />
+      </main>
+    );
+  }
+
   return (
     <div className="flex min-h-svh flex-col">
       <a
@@ -50,7 +63,7 @@ export function PublicLayout() {
               href={GITHUB_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex min-h-11 items-center"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center"
             >
               GitHub
             </a>

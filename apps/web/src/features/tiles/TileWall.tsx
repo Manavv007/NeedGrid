@@ -20,21 +20,35 @@ import {
 } from "./filterNeeds";
 import { TILE_GRID, TileCard } from "./TileCard";
 
-type TileWallProps = { org: OrgPublic; needs: readonly NeedCard[] };
+type TileWallProps = {
+  org: OrgPublic;
+  needs: readonly NeedCard[];
+  /** Tiles that just became funded (live updates): highlighted for a moment. */
+  justFunded?: ReadonlySet<string>;
+};
+
+const NONE: ReadonlySet<string> = new Set();
 
 /**
  * Tabs, filters, sort and the tile grid. All filter state lives in the URL search params, so links
  * are shareable and Back undoes a filter change. Invalid params fall back to the defaults.
+ * Live updates change `needs`: tiles move between tabs and the counts follow.
  */
-export function TileWall({ org, needs }: TileWallProps) {
+export function TileWall({ org, needs, justFunded = NONE }: TileWallProps) {
   const [params, setParams] = useSearchParams();
   const visible = useMemo(() => visibleNeeds(needs), [needs]);
   const categories = useMemo(() => categoriesIn(visible), [visible]);
   const counts = useMemo(() => countByTab(visible), [visible]);
   const filters = parseFilters(params, categories);
   const results = applyFilters(visible, filters);
-  // Announce result counts only after the donor changes something, not on page load.
+  // Announce result counts only after the donor changes something, not on page load, and only when
+  // the filters change: live changes have the page's own live region (LiveStatus).
   const [announce, setAnnounce] = useState(false);
+  const filtersKey = writeFilters(filters).toString();
+  const [summary, setSummary] = useState<{ filtersKey: string; text: string } | null>(null);
+  if (announce && summary?.filtersKey !== filtersKey) {
+    setSummary({ filtersKey, text: resultSummary(results.length, filters) });
+  }
 
   function update(next: Partial<Filters>) {
     const nextParams = writeFilters({ ...filters, ...next }, params);
@@ -57,7 +71,7 @@ export function TileWall({ org, needs }: TileWallProps) {
     >
       <FilterBar filters={filters} counts={counts} categories={categories} onChange={update} />
       <p role="status" className="sr-only">
-        {announce ? resultSummary(results.length, filters) : ""}
+        {summary?.text ?? ""}
       </p>
       <TabsContent
         value={filters.tab}
@@ -67,7 +81,7 @@ export function TileWall({ org, needs }: TileWallProps) {
           <ul className={TILE_GRID}>
             {results.map((need) => (
               <li key={need.id} className="flex">
-                <TileCard need={need} />
+                <TileCard need={need} highlight={justFunded.has(need.id)} />
               </li>
             ))}
           </ul>

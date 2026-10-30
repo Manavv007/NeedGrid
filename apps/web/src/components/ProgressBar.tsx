@@ -27,7 +27,8 @@ function widthPct(cents: number, targetCents: number): number {
 
 /**
  * Funding progress: a teal funded segment plus a striped segment for money held by donors who are
- * paying right now. Widths animate between server updates unless the user prefers reduced motion.
+ * paying right now. Both widths animate (about 600 ms) from the old to the new server value, and a
+ * bar that becomes `complete` fills up and turns green, unless the user prefers reduced motion.
  */
 export function ProgressBar({
   fundedCents,
@@ -39,8 +40,8 @@ export function ProgressBar({
   valueText,
   className,
 }: ProgressBarProps) {
-  const funded = widthPct(fundedCents, targetCents);
-  const held = Math.min(100 - funded, widthPct(heldCents, targetCents));
+  const funded = complete ? 100 : widthPct(fundedCents, targetCents);
+  const held = complete ? 0 : Math.min(100 - funded, widthPct(heldCents, targetCents));
   const defaultValueText =
     heldCents > 0
       ? `${formatUsd(fundedCents)} of ${formatUsd(targetCents)} raised, ${formatUsd(heldCents)} being paid now`
@@ -54,25 +55,20 @@ export function ProgressBar({
       aria-valuemax={targetCents}
       aria-valuenow={Math.min(fundedCents, targetCents)}
       aria-valuetext={valueText ?? defaultValueText}
-      className={cn(
-        "flex overflow-hidden rounded-full",
-        complete ? "bg-success" : "bg-track",
-        HEIGHTS[size],
-        className,
-      )}
+      className={cn("flex overflow-hidden rounded-full bg-track", HEIGHTS[size], className)}
     >
-      {complete ? null : (
-        <>
-          <div
-            className="h-full bg-primary transition-[width] duration-700 ease-out motion-reduce:transition-none"
-            style={{ width: `${funded}%` }}
-          />
-          <div
-            className="h-full bg-held-stripes transition-[width] duration-700 ease-out motion-reduce:transition-none"
-            style={{ width: `${held}%` }}
-          />
-        </>
-      )}
+      {/* The same two segments in every state, so a live update animates instead of redrawing. */}
+      <div
+        className={cn(
+          "h-full transition-[width,background-color] duration-600 ease-out motion-reduce:transition-none",
+          complete ? "bg-success" : "bg-primary",
+        )}
+        style={{ width: `${funded}%` }}
+      />
+      <div
+        className="h-full bg-held-stripes transition-[width] duration-600 ease-out motion-reduce:transition-none"
+        style={{ width: `${held}%` }}
+      />
     </div>
   );
 }

@@ -43,7 +43,7 @@ export function DonateSheet({ need, open, onOpenChange, onPhaseChange }: DonateS
       <SheetContent
         side="bottom"
         showCloseButton={false}
-        className="max-h-[92svh] gap-4 overflow-y-auto rounded-t-[20px] px-5 pt-2.5 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+        className="max-h-[92svh] gap-4 overflow-y-auto rounded-t-[20px] pt-2.5 pr-[max(1.25rem,env(safe-area-inset-right))] pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1.25rem,env(safe-area-inset-left))]"
       >
         <span aria-hidden="true" className="h-1.25 w-10 self-center rounded-full bg-border-strong" />
         <div className="flex items-center justify-between gap-3">
