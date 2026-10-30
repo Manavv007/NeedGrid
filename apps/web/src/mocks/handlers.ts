@@ -13,8 +13,11 @@ import {
   ApiError,
   ApprovePurchaseRes,
   CaptureRes,
+  ConfirmDeliveryReq,
   CreateOrderReq,
   CreateOrderRes,
+  DeliveryReq,
+  DeliveryRes,
   FullyFundedDetails,
   ImpactRes,
   IntakeReq,
@@ -35,8 +38,10 @@ import {
   type ErrorCode,
   type OrgPublic,
 } from "@needgrid/shared";
-import { delay, http, HttpResponse } from "msw";
+import { bypass, delay, http, HttpResponse } from "msw";
 import { z } from "zod";
+import { MOCK_UPLOAD_URL } from "@/lib/mockUploadUrl";
+import { mockImage } from "./fixtures";
 import { mockIntake } from "./intake";
 import { mockDb, type StaffNeedResult, type StaffRefusal } from "./mockDb";
 
@@ -278,10 +283,63 @@ const purchaseHandlers = [
   }),
 ];
 
+// ---------- deliveries (C-8) ----------
+
+/** B's photo check takes 5 to 20 s on the real server; a shorter wait still shows the staged progress. */
+const DELIVERY_CHECK_LATENCY_MS = 2_500;
+
+const deliveryHandlers = [
+  // Same order of checks as B's route: the body, then the photo host, then the need and its status.
+  http.post("*/api/staff/needs/:id/delivery", async ({ request, params }) => {
+    const org = staffOrg(request);
+    if (!org) return unauthorized();
+    const id = String(params.id);
+    if (!isUuid(id)) return notFound("Need");
+    const body = DeliveryReq.safeParse(await readJson(request));
+    if (!body.success) return validation(body.error);
+    if (!isCloudinaryUrl(body.data.photoUrl)) {
+      return apiError(400, "VALIDATION", "Images must be uploaded to the NeedGrid Cloudinary account");
+    }
+    if (import.meta.env.MODE !== "test") await delay(DELIVERY_CHECK_LATENCY_MS);
+    const result = mockDb.recordDelivery(org.id, id, body.data);
+    if (result.kind === "notFound") return notFound("Need");
+    if (result.kind === "refused") return refusal(result);
+    return HttpResponse.json(DeliveryRes.parse(result.delivery));
+  }),
+
+  http.post("*/api/staff/deliveries/:id/confirm", async ({ request, params }) => {
+    await latency();
+    const org = staffOrg(request);
+    if (!org) return unauthorized();
+    const id = String(params.id);
+    if (!isUuid(id)) return notFound("Delivery");
+    const body = ConfirmDeliveryReq.safeParse((await readJson(request)) ?? {});
+    if (!body.success) return validation(body.error);
+    const result = mockDb.confirmDelivery(org.id, id, body.data);
+    if (result.kind === "notFound") return notFound("Delivery");
+    if (result.kind === "refused") return refusal(result);
+    return HttpResponse.json(DeliveryRes.parse(result.delivery));
+  }),
+];
+
+/**
+ * Mock mode "uploads" every photo to one fixed Cloudinary-style URL (lib/cloudinary.ts), which isn't
+ * a real image. The browser worker answers it with the mock arrival picture, so a delivery recorded
+ * in mock mode shows a photo on the staff page and the donor's impact page.
+ */
+const mockPhotoHandlers = [
+  http.get(MOCK_UPLOAD_URL, async () => {
+    const picture = await fetch(bypass(mockImage("arrival"))).then((res) => res.arrayBuffer());
+    return HttpResponse.arrayBuffer(picture, { headers: { "content-type": "image/svg+xml" } });
+  }),
+];
+
 export const handlers = [
   ...publicReadHandlers,
   ...donationHandlers,
   ...staffReadHandlers,
   ...staffWriteHandlers,
   ...purchaseHandlers,
+  ...deliveryHandlers,
+  ...mockPhotoHandlers,
 ];

@@ -80,6 +80,15 @@ Warm, trustworthy, concrete. Real product photos are the hero; the UI stays calm
 - A locked step ("Unlocks after approval") has a dashed `--border-strong` border. Its text keeps full contrast; only the
   disabled controls are dimmed.
 
+## Used in C-8 (delivery, impact page): no new tokens
+
+- "Needs your review before donors see it" header: `--badge-warning-bg` with `--badge-warning-text` (heading and icon).
+- Photo match meter: `--track` behind; fill `--success` at or above `DELIVERY_MATCH_THRESHOLD`, `--warning` below. The
+  text next to it ("94% match", "58% match · check it") always says it too, with an icon.
+- "The automatic check didn't run" box: `--warning` border on `--warning-soft`, text `--badge-warning-text`.
+- Impact page: arrival message box `--quote-bg` / `--quote-text`; the "Save your impact link" box there is the quiet
+  variant, a dashed `--held` border (the thank-you page keeps the 2 px `--primary` one).
+
 ## Status badges (background / text)
 
 | Status | Background | Text | CSS variables |

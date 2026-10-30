@@ -8,11 +8,11 @@
  * so deadlines stay ahead, deliveries stay in the past, and the mocks never go stale.
  */
 import {
+  Cents,
   computeTargetCents,
   DeliveryPublic,
   DeliveryView,
   formatUsd,
-  ImpactRes,
   NeedCard,
   OrgPublic,
   ProductSnapshot,
@@ -20,6 +20,7 @@ import {
   PurchaseView,
   remainingCents,
   TimelineEvent,
+  type AllocationReason,
   type Category,
   type NeedStatus,
 } from "@needgrid/shared";
@@ -1490,23 +1491,46 @@ export const freshAlternatives: Record<string, PurchaseOffer[]> = Object.fromEnt
 
 export const DEMO_IMPACT_TOKEN = "demo-impact-token";
 
-/** Sam's gift (ImpactPhone.dc.html): $14 finished Diapers, size 3; the other $25 overflowed to socks. */
-function buildDemoImpact(): ImpactRes {
-  const items = [
-    { id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000112", amountCents: 1400, reason: "direct" as const },
-    { id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000111", amountCents: 2500, reason: "overflow" as const },
-  ].map(({ id, amountCents, reason }) => {
-    const n = fixtureNeed(id);
-    const org = orgs.find((o) => o.id === n.card.orgId);
-    if (!org) throw new Error(`Mock fixture org ${n.card.orgId} is missing`);
-    return { need: n.card, orgName: org.name, amountCents, reason, timeline: n.timeline, delivery: n.delivery };
-  });
-  return ImpactRes.parse({
-    donorFirstName: "Sam",
-    totalCents: items.reduce((sum, i) => sum + i.amountCents, 0),
-    donatedAt: rel(-9, "15:42"),
-    items,
-  });
-}
+/**
+ * A donation that is part of the fixture story, with its impact link. The mock ledger turns each
+ * item into an allocation (one of the need's `donorCount` donors), so `GET /api/impact/:token` is
+ * built from the needs' current state, like the server: a delivery recorded in this tab shows up.
+ */
+export type ImpactRecord = {
+  token: string;
+  donationId: string;
+  donorFirstName: string | null;
+  donatedAt: string;
+  /** In the order the capture placed them (the server lists items by their first allocation). */
+  items: ReadonlyArray<{ needId: string; amountCents: number; reason: AllocationReason }>;
+};
 
-export const impacts: Record<string, ImpactRes> = { [DEMO_IMPACT_TOKEN]: buildDemoImpact() };
+/**
+ * Sam's gift (ImpactPhone.dc.html): $14 finished Diapers, size 3 (delivered, with a photo); the
+ * other $25 overflowed to Women's socks (ordered, no photo yet).
+ */
+export const impactRecords: readonly ImpactRecord[] = [
+  {
+    token: DEMO_IMPACT_TOKEN,
+    donationId: "seed-demo-impact-sam",
+    donorFirstName: "Sam",
+    donatedAt: rel(-9, "15:42"),
+    items: [
+      { needId: "4c1f7a2e-9b3d-4e5f-8a6b-000000000112", amountCents: 1400, reason: "direct" },
+      { needId: "4c1f7a2e-9b3d-4e5f-8a6b-000000000111", amountCents: 2500, reason: "overflow" },
+    ],
+  },
+];
+
+/** Each record's items must fit inside the need's funded amount and donor count. */
+for (const record of impactRecords) {
+  for (const item of record.items) {
+    const { card } = fixtureNeed(item.needId);
+    if (!Cents.safeParse(item.amountCents).success || item.amountCents === 0) {
+      throw new Error(`Mock impact ${record.token}: amount for ${card.title} must be positive cents`);
+    }
+    if (item.amountCents > card.fundedCents || card.donorCount < 1) {
+      throw new Error(`Mock impact ${record.token}: ${card.title} has less funding than this gift`);
+    }
+  }
+}

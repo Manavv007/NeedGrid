@@ -1,4 +1,5 @@
 import { env } from "@/env";
+import { MOCK_UPLOAD_URL } from "./mockUploadUrl";
 
 /**
  * Direct, unsigned photo upload to Cloudinary (brief A7.4). The browser never holds a secret: the
@@ -10,8 +11,7 @@ export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export const UPLOAD_FOLDER = "needgrid";
 const CLOUDINARY_IMAGE_HOST = "res.cloudinary.com";
 
-/** What mock mode "uploads" to: a fixed demo image on Cloudinary's public demo cloud. */
-export const MOCK_UPLOAD_URL = `https://${CLOUDINARY_IMAGE_HOST}/demo/image/upload/needgrid/demo-shelf.jpg`;
+export { MOCK_UPLOAD_URL };
 const MOCK_UPLOAD_DELAY_MS = 600;
 
 /** A problem with the chosen file or the upload that is safe to show to staff as it is. */

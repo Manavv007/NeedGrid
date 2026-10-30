@@ -3,6 +3,7 @@ import { PublicLayout } from "@/components/layout/PublicLayout";
 import { RootLayout } from "@/components/layout/RootLayout";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { StaffGate } from "@/features/staff/StaffGate";
+import { ImpactPage } from "@/pages/ImpactPage";
 import { IntakePage } from "@/pages/IntakePage";
 import { LandingPage } from "@/pages/LandingPage";
 import { NeedPage } from "@/pages/NeedPage";
@@ -29,7 +30,7 @@ export const routes: RouteObject[] = [
           { path: "o/:slug", Component: OrgPage },
           { path: "o/:slug/n/:needId", Component: NeedPage },
           { path: "thanks/:token", Component: ThankYouPage },
-          { path: "impact/:token", element: <PlaceholderPage title="Your impact" task="C-8" /> },
+          { path: "impact/:token", Component: ImpactPage },
           {
             // B owns src/dashboard/**; this route only lazy-loads its default export.
             path: "dashboard",

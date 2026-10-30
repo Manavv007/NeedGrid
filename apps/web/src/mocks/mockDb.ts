@@ -12,22 +12,33 @@
  *   `funded`. Overflow without consent stays unallocated (the server proposes a refund).
  *
  * Live updates: every change to a need's card (a hold from create order, a capture, a publish, a
- * staff edit, a purchase approval or order) is sent to `subscribeNeedUpdates` listeners as `NeedCard` JSON, like the API's
- * `need.updated` SSE event (core/needs.ts → publishNeedUpdated: drafts are never sent). The state
- * lives in this tab, so mock live updates only reach screens in the same tab.
+ * staff edit, a purchase approval or order, a delivery) is sent to `subscribeNeedUpdates` listeners
+ * as `NeedCard` JSON, like the API's `need.updated` SSE event (core/needs.ts → publishNeedUpdated:
+ * drafts are never sent). The state lives in this tab, so mock live updates only reach screens in
+ * the same tab.
  *
  * The ledger: every fixture need's funded amount starts as `donorCount` seed donations with matching
- * allocations, and `allocate` is the only code that moves `fundedCents` (with a signed allocation), so
- * funded always equals the sum of a need's allocations, like A's money invariants (`moneyProblems`).
+ * allocations (one of them is a fixture gift's, see `impactRecords`), and `allocate` is the only code
+ * that moves `fundedCents` (with a signed allocation), so funded always equals the sum of a need's
+ * allocations, like A's money invariants (`moneyProblems`).
  *
  * Purchases mirror B's purchase-plan route (AGENT_B_AI_DATA.md §9.3) and A's approve / mark-ordered
  * rules (AGENT_A_BACKEND.md §8.5): plan only while `funded`; approve a `proposed` plan only while
  * `funded` (surplus → `price_drop` moves to the next most urgent needs, gap → `topping_up`); mark
  * ordered only while `funded` with an `approved` purchase.
+ *
+ * Deliveries mirror B's proof-of-delivery route (AGENT_B_AI_DATA.md §9.4) and A's `recordDelivery` /
+ * `confirmDelivery`: only an `ordered` need; a passed photo check (score ≥ DELIVERY_MATCH_THRESHOLD)
+ * makes it `delivered` at once, anything else waits for staff to confirm; a failed check is never
+ * approved automatically. Donors see a delivery (need page, impact pages) once the need is delivered.
+ *
+ * Impact pages are built from the ledger like core/impact.ts: the fixture gifts (`impactRecords`)
+ * are donations with allocations too, so their items follow the needs' current state.
  */
 import {
   clampDonation,
   computeTargetCents,
+  DELIVERY_MATCH_THRESHOLD,
   DONATABLE_STATUSES,
   formatUsd,
   HOLD_MINUTES,
@@ -39,8 +50,12 @@ import {
   type AllocationReason,
   type ApprovePurchaseRes,
   type CaptureRes,
+  type ConfirmDeliveryReq,
   type CreateOrderReq,
   type CreateOrderRes,
+  type DeliveryReq,
+  type DeliveryRes,
+  type DeliveryView,
   type ErrorCode,
   type ImpactRes,
   type MarkOrderedReq,
@@ -75,9 +90,12 @@ type Reservation = {
 
 type Donation = {
   id: string;
-  orderId: string;
+  /** Null for the fixture gifts (they were never a mock PayPal order). */
+  orderId: string | null;
   impactToken: string;
   amountCents: number;
+  /** PayPal gives the payer's name; mock checkouts have none, fixture gifts may. */
+  donorFirstName: string | null;
   createdAt: string;
 };
 
@@ -95,7 +113,6 @@ type Allocation = {
 type State = {
   orgs: OrgPublic[];
   needs: Map<string, fixtures.MockNeed>;
-  impacts: Map<string, ImpactRes>;
   /** Fixture holds ("someone is paying right now"). They never expire. */
   fixtureHeld: Map<string, number>;
   reservations: Map<string, Reservation>;
@@ -107,21 +124,45 @@ type State = {
 };
 
 /**
- * Each fixture need's funded amount as `donorCount` seed donations (like B's seed script), at the
- * time of the fixture's donation event, a millisecond apart so "newest first" is well defined.
+ * Each fixture need's funded amount as `donorCount` seed donations (like B's seed script). The
+ * fixture gifts (`impactRecords`) come first, at their donation time and in their own order; the
+ * rest of the amount is split over the remaining donors at the time of the fixture's donation event,
+ * a millisecond apart so "newest first" is well defined.
  */
-function seedAllocations(needs: Iterable<fixtures.MockNeed>): Allocation[] {
+function seedAllocations(needs: Iterable<fixtures.MockNeed>, records: readonly fixtures.ImpactRecord[]): Allocation[] {
   const out: Allocation[] = [];
+  const recorded = new Map<string, { cents: number; donors: number }>();
+  for (const record of records) {
+    const startMs = Date.parse(record.donatedAt);
+    record.items.forEach(({ needId, amountCents, reason }, i) => {
+      out.push({
+        donationId: record.donationId,
+        needId,
+        amountCents,
+        reason,
+        at: new Date(startMs + i).toISOString(),
+        seed: true,
+      });
+      const known = recorded.get(needId) ?? { cents: 0, donors: 0 };
+      recorded.set(needId, { cents: known.cents + amountCents, donors: known.donors + 1 });
+    });
+  }
   for (const need of needs) {
-    const { id, fundedCents, donorCount, createdAt } = need.card;
-    if (fundedCents <= 0 || donorCount <= 0) continue;
+    const { id, title, fundedCents, donorCount, createdAt } = need.card;
+    const known = recorded.get(id) ?? { cents: 0, donors: 0 };
+    const restCents = fundedCents - known.cents;
+    const restDonors = donorCount - known.donors;
+    if (restCents < 0 || restDonors < 0 || (restCents === 0) !== (restDonors === 0)) {
+      throw new Error(`Mock fixture "${title}": the fixture gifts don't fit its funded amount and donor count`);
+    }
+    if (restCents === 0) continue;
     const startMs = Date.parse(need.timeline.find((e) => e.type === "donation")?.at ?? createdAt);
-    const share = Math.floor(fundedCents / donorCount);
-    for (let i = 0; i < donorCount; i++) {
+    const share = Math.floor(restCents / restDonors);
+    for (let i = 0; i < restDonors; i++) {
       out.push({
         donationId: `seed-${id}-${i + 1}`,
         needId: id,
-        amountCents: i === donorCount - 1 ? fundedCents - share * (donorCount - 1) : share,
+        amountCents: i === restDonors - 1 ? restCents - share * (restDonors - 1) : share,
         reason: "direct",
         at: new Date(startMs + i).toISOString(),
         seed: true,
@@ -131,16 +172,27 @@ function seedAllocations(needs: Iterable<fixtures.MockNeed>): Allocation[] {
   return out;
 }
 
+/** The fixture gifts as donations, so their impact links work like any other. */
+function fixtureDonations(records: readonly fixtures.ImpactRecord[]): Donation[] {
+  return records.map((record) => ({
+    id: record.donationId,
+    orderId: null,
+    impactToken: record.token,
+    amountCents: record.items.reduce((sum, item) => sum + item.amountCents, 0),
+    donorFirstName: record.donorFirstName,
+    createdAt: record.donatedAt,
+  }));
+}
+
 function freshState(): State {
   const needs = new Map(fixtures.needs.map((n) => [n.card.id, structuredClone(n)]));
   return {
     orgs: structuredClone(fixtures.orgs),
     needs,
-    impacts: new Map(Object.entries(structuredClone(fixtures.impacts))),
     fixtureHeld: new Map(fixtures.needs.map((n) => [n.card.id, n.card.heldCents])),
     reservations: new Map(),
-    donations: [],
-    allocations: seedAllocations(needs.values()),
+    donations: fixtureDonations(fixtures.impactRecords),
+    allocations: seedAllocations(needs.values(), fixtures.impactRecords),
     fundedAt: new Map(),
     scenarios: new Set(),
   };
@@ -396,7 +448,12 @@ function impactOf(donation: Donation): ImpactRes {
       },
     ];
   });
-  return { donorFirstName: null, totalCents: donation.amountCents, donatedAt: donation.createdAt, items };
+  return {
+    donorFirstName: donation.donorFirstName,
+    totalCents: donation.amountCents,
+    donatedAt: donation.createdAt,
+    items,
+  };
 }
 
 export type CreateOrderResult =
@@ -507,6 +564,71 @@ function snapshotOf(offer: PurchaseOffer, previous: ProductSnapshot | null, fetc
   };
 }
 
+// ---------- deliveries ----------
+
+export type DeliveryResult = { kind: "ok"; delivery: DeliveryRes } | { kind: "notFound" } | StaffRefusal;
+
+/** B's notes when the vision call fails (AGENT_B_AI_DATA.md §9.4): score 0, always reviewed by staff. */
+export const VISION_UNAVAILABLE_NOTES = "Automatic check unavailable; please confirm.";
+/** The mock photo check's two scores: a clear match, and a doubtful photo (below the threshold). */
+export const MOCK_MATCH_SCORE = 0.94;
+export const MOCK_REVIEW_SCORE = 0.42;
+/** Demo switch: a staff note containing this word gets the doubtful result (like `?mock=deliveryReview`). */
+const MISMATCH_NOTE = /mismatch/i;
+const IMPACT_NOTE_MAX = 300;
+
+type PhotoCheck = { matchScore: number; aiNotes: string; failed: boolean };
+
+/** Stands in for B's vision check (checkDeliveryPhoto): deterministic, with demo switches. */
+function checkPhoto(need: fixtures.MockNeed, staffNote: string): PhotoCheck {
+  const product = need.card.product?.title ?? need.card.title;
+  if (state.scenarios.delete("deliveryFail")) {
+    return { matchScore: 0, aiNotes: VISION_UNAVAILABLE_NOTES, failed: true };
+  }
+  if (state.scenarios.delete("deliveryReview") || MISMATCH_NOTE.test(staffNote)) {
+    return {
+      matchScore: MOCK_REVIEW_SCORE,
+      aiNotes: `The photo doesn't clearly show ${product}. The packaging looks different from what was ordered.`,
+      failed: false,
+    };
+  }
+  return {
+    matchScore: MOCK_MATCH_SCORE,
+    aiNotes: `The photo shows ${product}, the product that was ordered. The quantity looks right.`,
+    failed: false,
+  };
+}
+
+/**
+ * Stands in for B's writeImpactNote: two short sentences from the staff note only (no invented
+ * details), or null when there is no note.
+ */
+function impactNote(staffNote: string): string | null {
+  const note = staffNote.replace(/\s+/g, " ").trim();
+  if (note === "") return null;
+  let first = note;
+  if (first.length > IMPACT_NOTE_MAX) {
+    const space = first.lastIndexOf(" ", IMPACT_NOTE_MAX);
+    first = `${first.slice(0, space > 0 ? space : IMPACT_NOTE_MAX)}…`;
+  }
+  first = `${first.charAt(0).toUpperCase()}${first.slice(1)}`;
+  if (!/[.!?…]$/.test(first)) first = `${first}.`;
+  return `${first} Thank you for helping us get it.`;
+}
+
+/**
+ * core.recordDelivery / confirmDelivery: the need is delivered. Timeline "Arrived", the delivery
+ * donors see (dated when it passed the check or was confirmed), and a live update.
+ */
+function markDelivered(need: fixtures.MockNeed, view: DeliveryView): void {
+  const deliveredAt = view.confirmedAt ?? view.createdAt;
+  need.card.status = "delivered";
+  need.card.updatedAt = deliveredAt;
+  need.timeline.push({ type: "delivered", at: deliveredAt, label: "Arrived", amountCents: null });
+  need.delivery = { photoUrl: view.photoUrl, message: view.message, deliveredAt };
+  publishNeedUpdated(need.card.id);
+}
+
 export const mockDb = {
   /** Back to the fixtures (tests call this between cases). */
   reset(): void {
@@ -563,8 +685,6 @@ export const mockDb = {
   },
 
   getImpact(token: string): ImpactRes | null {
-    const fixture = state.impacts.get(token);
-    if (fixture) return fixture;
     const donation = state.donations.find((d) => d.impactToken === token);
     return donation ? impactOf(donation) : null;
   },
@@ -637,6 +757,7 @@ export const mockDb = {
       orderId,
       impactToken: newImpactToken(),
       amountCents: reservation.amountCents,
+      donorFirstName: null,
       createdAt: nowIso(),
     };
     state.donations.push(donation);
@@ -675,7 +796,7 @@ export const mockDb = {
       need: cardOf(need),
       alternatives: need.alternatives,
       purchases: need.purchases.map((p) => ({ ...p })),
-      delivery: need.deliveryView,
+      delivery: need.deliveryView ? { ...need.deliveryView } : null,
       timeline: timelineOf(need),
     };
   },
@@ -961,6 +1082,66 @@ export const mockDb = {
     need.timeline.push({ type: "ordered", at, label: "Ordered", amountCents: null });
     publishNeedUpdated(need.card.id);
     return { kind: "ok", ordered: { purchase: { ...purchase }, need: cardOf(need) } };
+  },
+
+  /**
+   * POST /api/staff/needs/:id/delivery (B's route, §9.4). The handler already checked the body and
+   * that the photo is on Cloudinary. Only an `ordered` need of the caller's org. A passed photo
+   * check delivers the need now; a doubtful or failed one waits for staff (`confirmDelivery`).
+   */
+  recordDelivery(orgId: string, needId: string, req: DeliveryReq): DeliveryResult {
+    const need = state.needs.get(needId);
+    if (!need || need.card.orgId !== orgId) return { kind: "notFound" };
+    if (need.card.status !== "ordered") {
+      return invalidState(
+        `A delivery can only be recorded for an ordered item (it is ${statusWords(need.card.status)} now)`,
+      );
+    }
+    const check = checkPhoto(need, req.staffNote);
+    const view: DeliveryView = {
+      id: crypto.randomUUID(),
+      needId,
+      photoUrl: req.photoUrl,
+      matchScore: check.matchScore,
+      aiNotes: check.aiNotes,
+      // Never approved automatically when the check didn't run.
+      needsReview: check.failed || check.matchScore < DELIVERY_MATCH_THRESHOLD,
+      message: impactNote(req.staffNote),
+      createdAt: nowIso(),
+      confirmedAt: null,
+    };
+    need.deliveryView = view;
+    if (!view.needsReview) markDelivered(need, view);
+    return { kind: "ok", delivery: { delivery: { ...view }, need: cardOf(need) } };
+  },
+
+  /**
+   * POST /api/staff/deliveries/:id/confirm (the staff override after review). The latest delivery
+   * of one of the caller's needs; anything else is "not found". Sets `confirmedAt` and, when sent,
+   * the donor message (empty means no message); an ordered need becomes delivered. Confirming again
+   * returns the confirmed delivery unchanged.
+   */
+  confirmDelivery(orgId: string, deliveryId: string, req: ConfirmDeliveryReq): DeliveryResult {
+    const need = [...state.needs.values()].find((n) => n.card.orgId === orgId && n.deliveryView?.id === deliveryId);
+    const view = need?.deliveryView;
+    if (!need || !view) return { kind: "notFound" };
+    const result = (): DeliveryResult => ({ kind: "ok", delivery: { delivery: { ...view }, need: cardOf(need) } });
+    if (view.confirmedAt !== null) return result();
+    if (need.card.status !== "ordered" && need.card.status !== "delivered") {
+      return invalidState(`This delivery can't be confirmed (the item is ${statusWords(need.card.status)} now)`);
+    }
+    if (req.message !== undefined) {
+      const message = req.message.trim();
+      view.message = message === "" ? null : message;
+    }
+    view.confirmedAt = nowIso();
+    if (need.card.status === "ordered") {
+      markDelivered(need, view);
+    } else {
+      need.delivery = { photoUrl: view.photoUrl, message: view.message, deliveredAt: view.confirmedAt };
+      publishNeedUpdated(need.card.id);
+    }
+    return result();
   },
 
   /**

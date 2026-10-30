@@ -1,12 +1,16 @@
 /**
- * Dev-only switches for the hard donation cases, so they can be clicked through in mock mode.
- * Each one is armed once and used up by the next request it applies to:
+ * Dev-only switches for the hard cases, so they can be clicked through in mock mode. Each one is
+ * armed once and used up by the next request it applies to:
  *
- * - `fullyFunded`: the next create-order finds another donor already paying for everything left
+ * - `fullyFunded`:    the next create-order finds another donor already paying for everything left
  *   → `409 FULLY_FUNDED` with the next most urgent need.
- * - `declined`:    the next capture fails like PayPal's `INSTRUMENT_DECLINED`. The mock button then
+ * - `declined`:       the next capture fails like PayPal's `INSTRUMENT_DECLINED`. The mock button then
  *   does what PayPal's restart does (the donor picks another payment method) and the retry succeeds.
- * - `cancel`:      the next Mock PayPal click behaves as if the donor closed the PayPal window.
+ * - `cancel`:         the next Mock PayPal click behaves as if the donor closed the PayPal window.
+ * - `deliveryReview`: the next delivery photo check is doubtful (42% match) and waits for staff to
+ *   confirm. A staff note containing "mismatch" does the same without the switch.
+ * - `deliveryFail`:   the next delivery photo check doesn't run (score 0, "Automatic check
+ *   unavailable; please confirm."), so staff must look at the photo and confirm.
  *
  * One more switch isn't used up: `liveDemo` starts a pretend donor in this tab (liveDemo.ts), so
  * live updates can be watched without a second browser.
@@ -14,7 +18,7 @@
  * MSW handlers only see the API URL, so the page URL is read once when the mock API starts
  * (`?mock=fullyFunded`, `?mock=declined,cancel`, or the param repeated). Tests arm them directly.
  */
-const MOCK_SCENARIOS = ["fullyFunded", "declined", "cancel"] as const;
+const MOCK_SCENARIOS = ["fullyFunded", "declined", "cancel", "deliveryReview", "deliveryFail"] as const;
 export type MockScenario = (typeof MOCK_SCENARIOS)[number];
 
 const LIVE_DEMO = "liveDemo";
