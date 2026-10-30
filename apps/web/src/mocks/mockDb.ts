@@ -13,15 +13,18 @@
  */
 import {
   clampDonation,
+  computeTargetCents,
   DONATABLE_STATUSES,
   formatUsd,
   HOLD_MINUTES,
+  MIN_DONATION_CENTS,
   remainingCents,
   splitCapture,
   type AllocationReason,
   type CaptureRes,
   type CreateOrderReq,
   type CreateOrderRes,
+  type ErrorCode,
   type ImpactRes,
   type NeedCard,
   type NeedDetailRes,
@@ -30,6 +33,8 @@ import {
   type OrgPublic,
   type OrgStats,
   type OrgSummary,
+  type PatchNeedReq,
+  type PublishNeedReq,
   type StaffNeedDetailRes,
   type TimelineEvent,
 } from "@needgrid/shared";
@@ -294,6 +299,29 @@ export type CreateOrderResult =
 
 export type CaptureResult = { kind: "ok"; capture: CaptureRes } | { kind: "notFound" } | { kind: "declined" };
 
+/** A staff write the server would refuse (same status, code and wording as the real routes). */
+export type StaffRefusal = { kind: "refused"; status: number; code: ErrorCode; message: string; details?: unknown };
+
+export type StaffNeedResult = { kind: "ok"; need: NeedCard } | { kind: "notFound" } | StaffRefusal;
+
+const refused = (status: number, code: ErrorCode, message: string, details?: unknown): StaffRefusal =>
+  details === undefined
+    ? { kind: "refused", status, code, message }
+    : { kind: "refused", status, code, message, details };
+
+const invalidState = (message: string, details?: unknown) => refused(409, "INVALID_STATE", message, details);
+
+/** core/needs.ts assertMinTarget: a target under the minimum gift could never be funded. */
+function checkMinTarget(targetCents: number): StaffRefusal | null {
+  return targetCents < MIN_DONATION_CENTS
+    ? refused(400, "VALIDATION", `The target must be at least ${formatUsd(MIN_DONATION_CENTS)}`)
+    : null;
+}
+
+/** Statuses where a need can still be edited and its target changed (core/needs.ts). */
+const EDITABLE_TARGET: NeedStatus[] = ["draft", "open", "topping_up", "funded"];
+const PRE_FUNDING: NeedStatus[] = ["draft", "open", "topping_up"];
+
 export const mockDb = {
   /** Back to the fixtures (tests call this between cases). */
   reset(): void {
@@ -445,5 +473,136 @@ export const mockDb = {
       delivery: need.deliveryView,
       timeline: timelineOf(need),
     };
+  },
+
+  /**
+   * POST /api/staff/needs (core/needs.ts createNeed). Target = staff override or unit price x quantity
+   * + 8% rounded up to the dollar; published needs are open at once, drafts stay private. The new
+   * need is in this tab's tile wall immediately.
+   */
+  createStaffNeed(orgId: string, req: PublishNeedReq): StaffNeedResult {
+    const org = findOrg((o) => o.id === orgId);
+    if (!org) return { kind: "notFound" };
+    const targetCents = req.targetCents ?? computeTargetCents(req.product.unitPriceCents, req.quantity);
+    const tooSmall = checkMinTarget(targetCents);
+    if (tooSmall) return tooSmall;
+
+    const at = nowIso();
+    const card: NeedCard = {
+      id: crypto.randomUUID(),
+      orgId,
+      orgSlug: org.slug,
+      title: req.title,
+      description: req.description,
+      category: req.category,
+      urgency: req.urgency,
+      quantity: req.quantity,
+      unit: req.unit,
+      status: req.publish ? "open" : "draft",
+      targetCents,
+      fundedCents: 0,
+      heldCents: 0,
+      remainingCents: targetCents,
+      donorCount: 0,
+      product: req.product,
+      deadlineAt: req.deadlineAt,
+      createdAt: at,
+      updatedAt: at,
+    };
+    const created: fixtures.MockNeed = {
+      card,
+      timeline: [{ type: "created", at, label: "Need posted", amountCents: null }],
+      delivery: null,
+      alternatives: req.alternatives,
+      purchases: [],
+      deliveryView: null,
+    };
+    state.needs.set(card.id, created);
+    return { kind: "ok", need: cardOf(created) };
+  },
+
+  /**
+   * PATCH /api/staff/needs/:id (core/needs.ts patchNeed), rule for rule:
+   * delivered and closed needs can't be edited; quantity is locked once money is in (funded + held);
+   * a product swap only before funding; the target never drops below funded + held and is
+   * recomputed when quantity or product change without an explicit one; "open" publishes a draft that
+   * has a product; "closed" is refused while money is attached; afterwards funded/open is re-derived.
+   */
+  patchStaffNeed(orgId: string, id: string, patch: PatchNeedReq): StaffNeedResult {
+    const need = state.needs.get(id);
+    if (!need || need.card.orgId !== orgId) return { kind: "notFound" };
+    const card = need.card;
+    const status = card.status;
+    if (status === "delivered" || status === "closed") return invalidState(`A ${status} need can't be edited`);
+
+    const moneyIn = card.fundedCents + heldFor(id);
+    const updates: Partial<NeedCard> = {};
+    if (patch.title !== undefined) updates.title = patch.title;
+    if (patch.description !== undefined) updates.description = patch.description;
+    if (patch.urgency !== undefined) updates.urgency = patch.urgency;
+    if (patch.deadlineAt !== undefined) updates.deadlineAt = patch.deadlineAt;
+
+    const quantityChanged = patch.quantity !== undefined && patch.quantity !== card.quantity;
+    if (quantityChanged) {
+      if (moneyIn > 0) return invalidState("The quantity can't change once donations have started");
+      updates.quantity = patch.quantity;
+    }
+    if (patch.product) {
+      if (!PRE_FUNDING.includes(status))
+        return invalidState("The product can only be changed before the item is funded");
+      updates.product = patch.product;
+    }
+
+    const product = patch.product ?? card.product;
+    const quantity = patch.quantity ?? card.quantity;
+    let targetCents = card.targetCents;
+    if (patch.targetCents !== undefined) targetCents = patch.targetCents;
+    else if ((quantityChanged || patch.product) && product) {
+      targetCents = computeTargetCents(product.unitPriceCents, quantity);
+    }
+
+    if (targetCents !== card.targetCents) {
+      if (!EDITABLE_TARGET.includes(status)) return invalidState(`The target can't change once the item is ${status}`);
+      const tooSmall = checkMinTarget(targetCents);
+      if (tooSmall) return tooSmall;
+      if (targetCents < moneyIn) {
+        return invalidState(`The target can't be below what's already raised or on hold (${formatUsd(moneyIn)})`, {
+          minTargetCents: moneyIn,
+        });
+      }
+      updates.targetCents = targetCents;
+    }
+
+    let nextStatus: NeedStatus = status;
+    if (patch.status === "open" && status !== "open") {
+      if (status !== "draft") return invalidState(`Only a draft can be published (this need is ${status})`);
+      if (!product) return invalidState("Choose a product before publishing");
+      nextStatus = "open";
+    }
+    if (patch.status === "closed") {
+      if (moneyIn > 0) return invalidState("This need has donations attached, so it can't be closed yet");
+      nextStatus = "closed";
+    }
+
+    const at = nowIso();
+    if (
+      (nextStatus === "open" || nextStatus === "topping_up") &&
+      card.fundedCents > 0 &&
+      card.fundedCents >= targetCents
+    ) {
+      nextStatus = "funded";
+      if (!state.fundedAt.has(id)) state.fundedAt.set(id, at);
+    } else if (nextStatus === "funded" && card.fundedCents < targetCents) {
+      nextStatus = "open";
+    }
+    if (nextStatus !== status) updates.status = nextStatus;
+
+    if (Object.keys(updates).length > 0) {
+      Object.assign(card, updates, { updatedAt: at });
+      if (nextStatus === "closed") {
+        need.timeline.push({ type: "closed", at, label: "Closed", amountCents: null });
+      }
+    }
+    return { kind: "ok", need: cardOf(need) };
   },
 };

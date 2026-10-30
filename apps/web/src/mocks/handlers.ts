@@ -6,7 +6,7 @@
  * VITE_USE_MOCKS=true without an API URL, and http://api.test in tests.
  *
  * Mutation handlers arrive with their tasks (each in its own group below):
- *   C-3 donations (create order, capture) · C-4 intake + publish/patch · C-7 purchase plan/approve/ordered
+ *   C-3 donations (create order, capture) · C-4 intake + publish/patch (below) · C-7 purchase plan/approve/ordered
  *   C-8 delivery/confirm · C-9 assistant chat (NDJSON) + agent actions · C-10 invoices · P1 match.
  */
 import {
@@ -16,10 +16,14 @@ import {
   CreateOrderRes,
   FullyFundedDetails,
   ImpactRes,
+  IntakeReq,
   NeedDetailRes,
+  NeedRes,
   NeedStatus,
   OrgListRes,
   OrgPageRes,
+  PatchNeedReq,
+  PublishNeedReq,
   STAFF_KEY_HEADER,
   StaffMeRes,
   StaffNeedDetailRes,
@@ -28,7 +32,9 @@ import {
   type OrgPublic,
 } from "@needgrid/shared";
 import { delay, http, HttpResponse } from "msw";
-import { mockDb } from "./mockDb";
+import { z } from "zod";
+import { mockIntake } from "./intake";
+import { mockDb, type StaffNeedResult } from "./mockDb";
 
 /** 300–800 ms so loading states are visible in the browser. Tests run without latency. */
 async function latency(): Promise<void> {
@@ -160,4 +166,63 @@ const donationHandlers = [
   }),
 ];
 
-export const handlers = [...publicReadHandlers, ...donationHandlers, ...staffReadHandlers];
+// ---------- staff writes (C-4) ----------
+
+const issuesOf = (error: z.ZodError) => ({ issues: error.issues.map((i) => ({ path: i.path, message: i.message })) });
+
+const validation = (error: z.ZodError) => apiError(400, "VALIDATION", "Request is invalid", issuesOf(error));
+
+/** Same check as the API's `assertCloudinaryUrl` (minus the cloud name, which mocks don't have). */
+function isCloudinaryUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" && url.hostname === "res.cloudinary.com";
+  } catch {
+    return false;
+  }
+}
+
+const INTAKE_LATENCY_MS = 2_000;
+
+function needResponse(result: StaffNeedResult, status = 200) {
+  if (result.kind === "notFound") return notFound("Need");
+  if (result.kind === "refused") return apiError(result.status, result.code, result.message, result.details);
+  return HttpResponse.json(NeedRes.parse({ need: result.need }), { status });
+}
+
+const staffWriteHandlers = [
+  // Nothing is saved by intake: the browser holds the drafts until staff publish them.
+  http.post("*/api/staff/intake", async ({ request }) => {
+    const org = staffOrg(request);
+    if (!org) return unauthorized();
+    const body = IntakeReq.safeParse(await readJson(request));
+    if (!body.success) return validation(body.error);
+    if (body.data.imageUrl && !isCloudinaryUrl(body.data.imageUrl)) {
+      return apiError(400, "VALIDATION", "Images must be uploaded to the NeedGrid Cloudinary account");
+    }
+    if (import.meta.env.MODE !== "test") await delay(INTAKE_LATENCY_MS);
+    return HttpResponse.json(mockIntake(body.data));
+  }),
+
+  http.post("*/api/staff/needs", async ({ request }) => {
+    await latency();
+    const org = staffOrg(request);
+    if (!org) return unauthorized();
+    const body = PublishNeedReq.safeParse(await readJson(request));
+    if (!body.success) return validation(body.error);
+    return needResponse(mockDb.createStaffNeed(org.id, body.data), 201);
+  }),
+
+  http.patch("*/api/staff/needs/:id", async ({ request, params }) => {
+    await latency();
+    const org = staffOrg(request);
+    if (!org) return unauthorized();
+    const id = String(params.id);
+    if (!z.uuid().safeParse(id).success) return notFound("Need");
+    const body = PatchNeedReq.safeParse((await readJson(request)) ?? {});
+    if (!body.success) return validation(body.error);
+    return needResponse(mockDb.patchStaffNeed(org.id, id, body.data));
+  }),
+];
+
+export const handlers = [...publicReadHandlers, ...donationHandlers, ...staffReadHandlers, ...staffWriteHandlers];
