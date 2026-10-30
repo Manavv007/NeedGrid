@@ -1,5 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, configure } from "@testing-library/react";
+import { toast } from "sonner";
 import { afterAll, afterEach, beforeAll } from "vitest";
 import { mockDb } from "@/mocks/mockDb";
 import { server } from "@/mocks/node";
@@ -18,6 +19,9 @@ beforeAll(() => {
 
 afterEach(() => {
   cleanup();
+  // Sonner keeps toasts in a module-level store and replays the ones still active to the next
+  // <Toaster>, so a toast from one test would show up again in the next test of the same file.
+  toast.dismiss();
   server.resetHandlers();
   mockDb.reset();
   clearOwnChanges();

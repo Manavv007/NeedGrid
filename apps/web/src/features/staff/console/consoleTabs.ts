@@ -49,3 +49,8 @@ export function countByTab(needs: readonly NeedCard[]): Record<ConsoleTab, numbe
 export function consoleTabPath(tab: ConsoleTab): string {
   return `/staff?tab=${tab}`;
 }
+
+/** The tab a need of this status is listed under (e.g. "Back to needs" from its page). */
+export function tabForStatus(status: NeedStatus): ConsoleTab {
+  return CONSOLE_TABS.find((tab) => TAB_STATUSES[tab].includes(status)) ?? DEFAULT_TAB;
+}
