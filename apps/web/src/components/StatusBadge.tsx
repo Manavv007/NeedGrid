@@ -15,9 +15,14 @@ const STATUS: Record<NeedStatus, StatusStyle> = {
   closed: { label: "Closed", Icon: X, tone: "bg-badge-low-bg text-badge-low-text" },
 };
 
-type StatusBadgeProps = { status: NeedStatus; className?: string };
+type StatusBadgeProps = {
+  status: NeedStatus;
+  /** Extra words after the label, e.g. a date: "Delivered Oct 24". */
+  suffix?: string | null;
+  className?: string;
+};
 
-export function StatusBadge({ status, className }: StatusBadgeProps) {
+export function StatusBadge({ status, suffix, className }: StatusBadgeProps) {
   const { label, Icon, tone } = STATUS[status];
   return (
     <span
@@ -28,7 +33,7 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
       )}
     >
       <Icon aria-hidden="true" className="size-3" strokeWidth={3} />
-      {label}
+      {suffix ? `${label} ${suffix}` : label}
     </span>
   );
 }

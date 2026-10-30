@@ -2,11 +2,26 @@
  * Tiny in-memory "database" behind the MSW handlers, so mock mode behaves like the real API.
  * It starts as a deep copy of the fixtures and lives per browser tab (or per test, via `reset`).
  *
- * C-1 has reads only. Later tasks add the money rules here (create order → hold, capture → funded,
- * clamping, FULLY_FUNDED with nextNeed) plus an in-page event emitter for live updates.
+ * Donations mirror A's server code (apps/api/src/money/donations.ts, capture.ts, ledger.ts):
+ * - create order: draft/unknown → not found; not donatable or nothing left → FULLY_FUNDED with the
+ *   org's next most urgent need; otherwise amount = clampDonation(requested, remaining), held for
+ *   HOLD_MINUTES.
+ * - capture: idempotent per order; the hold becomes allocations via splitCapture: what still fits
+ *   the tile is `direct`, the rest (with consent) is `overflow` to the org's most urgent needs,
+ *   each filled up to its room (other donors' holds respected). A need reaching its target turns
+ *   `funded`. Overflow without consent stays unallocated (the server proposes a refund).
  */
 import {
+  clampDonation,
   DONATABLE_STATUSES,
+  formatUsd,
+  HOLD_MINUTES,
+  remainingCents,
+  splitCapture,
+  type AllocationReason,
+  type CaptureRes,
+  type CreateOrderReq,
+  type CreateOrderRes,
   type ImpactRes,
   type NeedCard,
   type NeedDetailRes,
@@ -16,13 +31,42 @@ import {
   type OrgStats,
   type OrgSummary,
   type StaffNeedDetailRes,
+  type TimelineEvent,
 } from "@needgrid/shared";
 import * as fixtures from "./fixtures";
+import type { MockScenario } from "./scenarios";
+
+type Reservation = {
+  orderId: string;
+  needId: string;
+  amountCents: number;
+  rollOverConsent: boolean;
+  expiresAtMs: number;
+  status: "active" | "converted";
+};
+
+type Donation = {
+  id: string;
+  orderId: string;
+  impactToken: string;
+  amountCents: number;
+  createdAt: string;
+};
+
+type Allocation = { donationId: string; needId: string; amountCents: number; reason: AllocationReason; at: string };
 
 type State = {
   orgs: OrgPublic[];
   needs: Map<string, fixtures.MockNeed>;
   impacts: Map<string, ImpactRes>;
+  /** Fixture holds ("someone is paying right now"). They never expire. */
+  fixtureHeld: Map<string, number>;
+  reservations: Map<string, Reservation>;
+  donations: Donation[];
+  allocations: Allocation[];
+  /** When a need became funded in this tab (the timeline's "Fully funded" event). */
+  fundedAt: Map<string, string>;
+  scenarios: Set<MockScenario>;
 };
 
 function freshState(): State {
@@ -30,6 +74,12 @@ function freshState(): State {
     orgs: structuredClone(fixtures.orgs),
     needs: new Map(fixtures.needs.map((n) => [n.card.id, structuredClone(n)])),
     impacts: new Map(Object.entries(structuredClone(fixtures.impacts))),
+    fixtureHeld: new Map(fixtures.needs.map((n) => [n.card.id, n.card.heldCents])),
+    reservations: new Map(),
+    donations: [],
+    allocations: [],
+    fundedAt: new Map(),
+    scenarios: new Set(),
   };
 }
 
@@ -39,6 +89,11 @@ let state = freshState();
 const NOT_PUBLIC: NeedStatus[] = ["draft", "closed"];
 const FUNDED_STATUSES: NeedStatus[] = ["funded", "ordered", "delivered"];
 const OPEN_STATUSES: readonly NeedStatus[] = DONATABLE_STATUSES;
+/** The server spreads overflow over at most this many needs (ledger.ts → distribute). */
+const OVERFLOW_NEEDS_MAX = 10;
+
+const isDonatable = (status: NeedStatus) => OPEN_STATUSES.includes(status);
+const nowIso = () => new Date().toISOString();
 
 /** "Most urgent" order: urgency desc, deadline asc (none last), oldest first. */
 function mostUrgentFirst(a: NeedCard, b: NeedCard): number {
@@ -51,8 +106,66 @@ function mostUrgentFirst(a: NeedCard, b: NeedCard): number {
   return a.createdAt.localeCompare(b.createdAt);
 }
 
+// ---------- ids (same shapes as the real ones) ----------
+
+const ORDER_ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+/** PayPal-like order id; the capture route only accepts `^[A-Z0-9]{5,40}$`. */
+function newOrderId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(13));
+  return `MOCK${Array.from(bytes, (b) => ORDER_ID_ALPHABET[b % ORDER_ID_ALPHABET.length]).join("")}`;
+}
+
+/** 128-bit random, base64url, like the server's `newImpactToken`. */
+function newImpactToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+// ---------- holds and cards ----------
+
+/** Active, unexpired holds on a need (optionally ignoring one order's own hold). */
+function heldFor(needId: string, excludeOrderId?: string): number {
+  const now = Date.now();
+  let held = state.fixtureHeld.get(needId) ?? 0;
+  for (const r of state.reservations.values()) {
+    if (r.needId === needId && r.status === "active" && r.expiresAtMs > now && r.orderId !== excludeOrderId) {
+      held += r.amountCents;
+    }
+  }
+  return held;
+}
+
+/** The card as the API would build it right now (holds expire with the clock). */
+function cardOf(need: fixtures.MockNeed): NeedCard {
+  const heldCents = heldFor(need.card.id);
+  return { ...need.card, heldCents, remainingCents: remainingCents({ ...need.card, heldCents }) };
+}
+
+/** Room left on a need: target − funded − holds, and 0 unless it accepts donations (ledger.ts → roomCents). */
+function roomFor(need: fixtures.MockNeed, excludeOrderId?: string): number {
+  if (!isDonatable(need.card.status)) return 0;
+  return remainingCents({ ...need.card, heldCents: heldFor(need.card.id, excludeOrderId) });
+}
+
 function orgNeeds(orgId: string): fixtures.MockNeed[] {
   return [...state.needs.values()].filter((n) => n.card.orgId === orgId);
+}
+
+/** Open/topping_up needs with room, most urgent first (core/needs.ts → listDonatableNeeds). */
+function donatableNeeds(orgId: string, excludeNeedId: string, limit: number): fixtures.MockNeed[] {
+  return orgNeeds(orgId)
+    .filter((n) => n.card.id !== excludeNeedId && isDonatable(n.card.status) && roomFor(n) > 0)
+    .sort((a, b) => mostUrgentFirst(a.card, b.card))
+    .slice(0, limit);
+}
+
+function nextMostUrgentNeed(orgId: string, excludeNeedId: string): NeedCard | null {
+  const [next] = donatableNeeds(orgId, excludeNeedId, 1);
+  return next ? cardOf(next) : null;
 }
 
 function statsFor(orgId: string): OrgStats {
@@ -69,10 +182,132 @@ function findOrg(predicate: (o: OrgPublic) => boolean): OrgPublic | null {
   return state.orgs.find(predicate) ?? null;
 }
 
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * Fixture history plus what happened in this tab: donations grouped per UTC day ("1 donor gave
+ * $14.00") and "Fully funded" when a gift finished the tile. "Price went up" only while topping up.
+ */
+function timelineOf(need: fixtures.MockNeed): TimelineEvent[] {
+  const id = need.card.id;
+  const events = need.timeline.filter((e) => e.type !== "topping_up" || need.card.status === "topping_up");
+  const days = new Map<string, Allocation[]>();
+  for (const a of state.allocations) {
+    if (a.needId !== id || a.amountCents <= 0) continue;
+    const day = a.at.slice(0, 10);
+    days.set(day, [...(days.get(day) ?? []), a]);
+  }
+  for (const list of days.values()) {
+    const donors = new Set(list.map((a) => a.donationId)).size;
+    const cents = list.reduce((sum, a) => sum + a.amountCents, 0);
+    const at = list[0]?.at ?? nowIso();
+    events.push({
+      type: "donation",
+      at,
+      label: `${plural(donors, "donor", "donors")} gave ${formatUsd(cents)}`,
+      amountCents: cents,
+    });
+  }
+  const fundedAt = state.fundedAt.get(id);
+  if (fundedAt && !events.some((e) => e.type === "funded")) {
+    events.push({ type: "funded", at: fundedAt, label: "Fully funded", amountCents: need.card.fundedCents });
+  }
+  // Stable sort keeps same-time events in the order pushed above (like the server).
+  return events.sort((a, b) => a.at.localeCompare(b.at));
+}
+
+// ---------- money ----------
+
+/** Insert one allocation and move fundedCents with it (ledger.ts → allocate + refreshNeedStatus). */
+function allocate(donation: Donation, need: fixtures.MockNeed, cents: number, reason: AllocationReason): void {
+  const card = need.card;
+  const firstFromDonation = !state.allocations.some((a) => a.donationId === donation.id && a.needId === card.id);
+  const at = nowIso();
+  state.allocations.push({ donationId: donation.id, needId: card.id, amountCents: cents, reason, at });
+  card.fundedCents += cents;
+  if (firstFromDonation) card.donorCount += 1;
+  card.updatedAt = at;
+  if (isDonatable(card.status) && card.targetCents > 0 && card.fundedCents >= card.targetCents) {
+    card.status = "funded";
+    if (!state.fundedAt.has(card.id)) state.fundedAt.set(card.id, at);
+  }
+}
+
+/** Overflow to the org's most urgent needs, each up to its room. Returns what couldn't be placed. */
+function distribute(donation: Donation, orgId: string, cents: number, excludeNeedId: string): number {
+  let left = cents;
+  for (const candidate of donatableNeeds(orgId, excludeNeedId, OVERFLOW_NEEDS_MAX)) {
+    if (left === 0) break;
+    const give = Math.min(left, roomFor(candidate));
+    if (give <= 0) continue;
+    allocate(donation, candidate, give, "overflow");
+    left -= give;
+  }
+  return left;
+}
+
+/** What one donation paid for, per need and reason, in placement order (capture.ts → buildCaptureRes). */
+function captureResOf(donation: Donation): CaptureRes {
+  const groups = new Map<string, { needId: string; reason: AllocationReason; amountCents: number }>();
+  for (const a of state.allocations) {
+    if (a.donationId !== donation.id) continue;
+    const key = `${a.needId}:${a.reason}`;
+    const group = groups.get(key) ?? { needId: a.needId, reason: a.reason, amountCents: 0 };
+    group.amountCents += a.amountCents;
+    groups.set(key, group);
+  }
+  const allocations = [...groups.values()]
+    .filter((g) => g.amountCents > 0)
+    .map((g) => ({ ...g, needTitle: state.needs.get(g.needId)?.card.title ?? "" }));
+  return { donationId: donation.id, impactToken: donation.impactToken, amountCents: donation.amountCents, allocations };
+}
+
+/** One donor's items with their current status (core/impact.ts → getImpact). */
+function impactOf(donation: Donation): ImpactRes {
+  const perNeed = new Map<string, { amountCents: number; reason: AllocationReason }>();
+  for (const a of state.allocations) {
+    if (a.donationId !== donation.id) continue;
+    const item = perNeed.get(a.needId) ?? { amountCents: 0, reason: a.reason };
+    item.amountCents += a.amountCents;
+    perNeed.set(a.needId, item);
+  }
+  const items = [...perNeed.entries()].flatMap(([needId, { amountCents, reason }]) => {
+    const need = state.needs.get(needId);
+    const org = need ? findOrg((o) => o.id === need.card.orgId) : null;
+    if (!need || !org || amountCents <= 0) return [];
+    return [
+      {
+        need: cardOf(need),
+        orgName: org.name,
+        amountCents,
+        reason,
+        timeline: timelineOf(need),
+        delivery: need.delivery,
+      },
+    ];
+  });
+  return { donorFirstName: null, totalCents: donation.amountCents, donatedAt: donation.createdAt, items };
+}
+
+export type CreateOrderResult =
+  { kind: "ok"; order: CreateOrderRes } | { kind: "notFound" } | { kind: "fullyFunded"; nextNeed: NeedCard | null };
+
+export type CaptureResult = { kind: "ok"; capture: CaptureRes } | { kind: "notFound" } | { kind: "declined" };
+
 export const mockDb = {
   /** Back to the fixtures (tests call this between cases). */
   reset(): void {
     state = freshState();
+  },
+
+  /** Arm a dev-only scenario (see scenarios.ts). */
+  armScenario(scenario: MockScenario): void {
+    state.scenarios.add(scenario);
+  },
+
+  /** True once per arming: the caller applies the scenario now. */
+  takeScenario(scenario: MockScenario): boolean {
+    return state.scenarios.delete(scenario);
   },
 
   listOrgSummaries(): OrgSummary[] {
@@ -85,7 +320,7 @@ export const mockDb = {
     const org = findOrg((o) => o.slug === slug);
     if (!org) return null;
     const needs = orgNeeds(org.id)
-      .map((n) => n.card)
+      .map(cardOf)
       .filter((c) => !NOT_PUBLIC.includes(c.status))
       .sort(mostUrgentFirst);
     return { org, stats: statsFor(org.id), needs };
@@ -97,11 +332,94 @@ export const mockDb = {
     if (!need || need.card.status === "draft") return null;
     const org = findOrg((o) => o.id === need.card.orgId);
     if (!org) return null;
-    return { need: need.card, org, timeline: need.timeline, delivery: need.delivery };
+    return { need: cardOf(need), org, timeline: timelineOf(need), delivery: need.delivery };
   },
 
   getImpact(token: string): ImpactRes | null {
-    return state.impacts.get(token) ?? null;
+    const fixture = state.impacts.get(token);
+    if (fixture) return fixture;
+    const donation = state.donations.find((d) => d.impactToken === token);
+    return donation ? impactOf(donation) : null;
+  },
+
+  /** POST /api/donations/orders (money/donations.ts → createDonationOrder). */
+  createOrder(req: CreateOrderReq): CreateOrderResult {
+    const need = state.needs.get(req.needId);
+    if (!need || need.card.status === "draft") return { kind: "notFound" };
+    const fullyFunded = (): CreateOrderResult => ({
+      kind: "fullyFunded",
+      nextNeed: nextMostUrgentNeed(need.card.orgId, need.card.id),
+    });
+    if (!isDonatable(need.card.status)) return fullyFunded();
+
+    if (mockDb.takeScenario("fullyFunded")) {
+      // Another donor starts paying for everything that's left, a moment before this request.
+      const rest = roomFor(need);
+      if (rest > 0) {
+        const orderId = newOrderId();
+        state.reservations.set(orderId, {
+          orderId,
+          needId: need.card.id,
+          amountCents: rest,
+          rollOverConsent: true,
+          expiresAtMs: Date.now() + HOLD_MINUTES * 60_000,
+          status: "active",
+        });
+      }
+    }
+
+    const clamped = clampDonation(req.amountCents, roomFor(need));
+    if (!clamped) return fullyFunded();
+
+    const orderId = newOrderId();
+    const expiresAtMs = Date.now() + HOLD_MINUTES * 60_000;
+    state.reservations.set(orderId, {
+      orderId,
+      needId: need.card.id,
+      amountCents: clamped.amountCents,
+      rollOverConsent: req.rollOverConsent,
+      expiresAtMs,
+      status: "active",
+    });
+    return {
+      kind: "ok",
+      order: {
+        orderId,
+        amountCents: clamped.amountCents,
+        wasClamped: clamped.wasClamped,
+        holdExpiresAt: new Date(expiresAtMs).toISOString(),
+      },
+    };
+  },
+
+  /** POST /api/donations/orders/:orderId/capture (money/capture.ts → captureDonationOrder). */
+  capture(orderId: string): CaptureResult {
+    const existing = state.donations.find((d) => d.orderId === orderId);
+    if (existing) return { kind: "ok", capture: captureResOf(existing) };
+
+    const reservation = state.reservations.get(orderId);
+    const need = reservation ? state.needs.get(reservation.needId) : undefined;
+    if (!reservation || !need) return { kind: "notFound" };
+    // PayPal refused the payment method: nothing is recorded and the hold stays until it expires.
+    if (mockDb.takeScenario("declined")) return { kind: "declined" };
+
+    const donation: Donation = {
+      id: crypto.randomUUID(),
+      orderId,
+      impactToken: newImpactToken(),
+      amountCents: reservation.amountCents,
+      createdAt: nowIso(),
+    };
+    state.donations.push(donation);
+
+    // Room on the tile, ignoring this donation's own hold (it is being converted now).
+    const { directCents, overflowCents } = splitCapture(reservation.amountCents, roomFor(need, orderId));
+    if (directCents > 0) allocate(donation, need, directCents, "direct");
+    if (overflowCents > 0 && reservation.rollOverConsent) {
+      distribute(donation, need.card.orgId, overflowCents, need.card.id);
+    }
+    reservation.status = "converted";
+    return { kind: "ok", capture: captureResOf(donation) };
   },
 
   orgByStaffKey(key: string | null): OrgPublic | null {
@@ -112,7 +430,7 @@ export const mockDb = {
   /** Staff list: includes drafts, newest update first. */
   listStaffNeeds(orgId: string, status?: NeedStatus): NeedCard[] {
     return orgNeeds(orgId)
-      .map((n) => n.card)
+      .map(cardOf)
       .filter((c) => !status || c.status === status)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   },
@@ -121,11 +439,11 @@ export const mockDb = {
     const need = state.needs.get(id);
     if (!need || need.card.orgId !== orgId) return null;
     return {
-      need: need.card,
+      need: cardOf(need),
       alternatives: need.alternatives,
       purchases: need.purchases,
       delivery: need.deliveryView,
-      timeline: need.timeline,
+      timeline: timelineOf(need),
     };
   },
 };

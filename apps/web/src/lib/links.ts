@@ -12,3 +12,26 @@ export function orgFlyerPath(slug: string): string {
 export function needPath(slug: string, needId: string, opts: { donate?: boolean } = {}): string {
   return `${orgPath(slug)}/n/${encodeURIComponent(needId)}${opts.donate ? "?donate=1" : ""}`;
 }
+
+/** Thank-you page right after a payment. */
+export function thanksPath(impactToken: string): string {
+  return `/thanks/${encodeURIComponent(impactToken)}`;
+}
+
+/** The donor's impact page: their only way back, so it's also the link they save. */
+export function impactPath(impactToken: string): string {
+  return `/impact/${encodeURIComponent(impactToken)}`;
+}
+
+/**
+ * Links to other sites (retailers) only ever open http(s) URLs. Returns null for anything else
+ * (`javascript:`, `data:`, malformed), so callers render plain text instead of a link.
+ */
+export function externalHttpUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}

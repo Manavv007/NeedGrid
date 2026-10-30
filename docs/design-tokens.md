@@ -49,6 +49,17 @@ Warm, trustworthy, concrete. Real product photos are the hero; the UI stays calm
 | `--placeholder-strong` | `#E9E4DA` | Arrival-photo placeholder |
 | `--placeholder-icon` | `#8A8F96` | Icon inside image placeholders (decorative) |
 
+## Added in C-3 (need page, donate panel, thank-you)
+
+| Token | Hex | Use |
+|---|---|---|
+| `--success-soft` | `#F0FDF4` | "Fully funded, thank you!" box background |
+| `--success-border` | `#BBF7D0` | Border of that box |
+| `--success-strong` | `#14532D` | Its heading (body text uses `--badge-success-text`) |
+| `--quote-bg` | `#F0F8F7` | Staff arrival message, "the rest went to the next need" explainer |
+| `--quote-text` | `#134E4A` | Text on `--quote-bg` |
+| `--confirming-track` | `#FDE68A` | Track of the "Confirming your gift…" spinner (the moving part is `--warning`) |
+
 ## Status badges (background / text)
 
 | Status | Background | Text | CSS variables |

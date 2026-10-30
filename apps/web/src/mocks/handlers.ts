@@ -11,6 +11,10 @@
  */
 import {
   ApiError,
+  CaptureRes,
+  CreateOrderReq,
+  CreateOrderRes,
+  FullyFundedDetails,
   ImpactRes,
   NeedDetailRes,
   NeedStatus,
@@ -105,4 +109,55 @@ const staffReadHandlers = [
   }),
 ];
 
-export const handlers = [...publicReadHandlers, ...staffReadHandlers];
+// ---------- donations (C-3) ----------
+
+/** Same check as the API route: anything else never reaches the database or PayPal. */
+const ORDER_ID = /^[A-Z0-9]{5,40}$/;
+
+async function readJson(request: Request): Promise<unknown> {
+  try {
+    return await request.json();
+  } catch {
+    return undefined;
+  }
+}
+
+const donationHandlers = [
+  http.post("*/api/donations/orders", async ({ request }) => {
+    await latency();
+    const body = CreateOrderReq.safeParse(await readJson(request));
+    if (!body.success) {
+      return apiError(400, "VALIDATION", "Request is invalid", {
+        issues: body.error.issues.map((i) => ({ path: i.path, message: i.message })),
+      });
+    }
+    const result = mockDb.createOrder(body.data);
+    if (result.kind === "notFound") return notFound("Need");
+    if (result.kind === "fullyFunded") {
+      return apiError(
+        409,
+        "FULLY_FUNDED",
+        "This item is already fully funded",
+        FullyFundedDetails.parse({ nextNeed: result.nextNeed }),
+      );
+    }
+    return HttpResponse.json(CreateOrderRes.parse(result.order), { status: 201 });
+  }),
+
+  // Idempotent: calling it again returns the same donation.
+  http.post("*/api/donations/orders/:orderId/capture", async ({ params }) => {
+    await latency();
+    const orderId = String(params.orderId);
+    if (!ORDER_ID.test(orderId)) return notFound("Donation order");
+    const result = mockDb.capture(orderId);
+    if (result.kind === "notFound") return notFound("Donation order");
+    if (result.kind === "declined") {
+      return apiError(409, "INVALID_STATE", "The payment method was declined. Please choose another one in PayPal.", {
+        paypalIssue: "INSTRUMENT_DECLINED",
+      });
+    }
+    return HttpResponse.json(CaptureRes.parse(result.capture));
+  }),
+];
+
+export const handlers = [...publicReadHandlers, ...donationHandlers, ...staffReadHandlers];
