@@ -15,6 +15,9 @@ Thumbs.db
 npm-debug.log*
 pnpm-debug.log*
 
+# personal Kiro config (may contain keys); shared skills and steering stay committed
+.kiro/settings/
+
 # editors
 .vscode/*
 !.vscode/extensions.json

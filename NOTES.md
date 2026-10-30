@@ -8,6 +8,20 @@ Format of an entry: **problem** → what we saw → fix / what to do.
 
 ---
 
+## 0. Decisions (read first; these override anything older in this file or the briefs)
+
+| Date | Decision | Why / what it means |
+|---|---|---|
+| Oct 30 | **Free Gemini tier only, no billing.** | Main model `gemini-2.5-flash-lite` (much bigger free daily allowance than Flash). On a 429, fall back to another *model* on the same key (e.g. flash-lite → flash → gemini-3-flash-preview). Keep the result cache, keep thinking budgets small, and cap the public AI endpoints per day so judging (Dec 1–15) never runs dry. |
+| Oct 30 | **No pooling of API keys** across team members, accounts or projects. | Free limits are per Google project; rotating keys to get more quota is circumventing limits (Google API terms) and risks suspension during judging. Each person keeps their own key for local development only. |
+| Oct 30 | **No PayPal donation-category approval.** | `PAYPAL_DONATION_ITEMS=false`; order items have no `category`. Write-up line: "In production, a donation-approved PayPal account would use the DONATION item category." |
+| Oct 30 | **Agent skills are committed** (`.kiro/skills`, `.agents/skills`, `skills-lock.json`); **`.kiro/settings/` is git-ignored.** | Everyone's agent gets the same pinned skills; personal Kiro config (MCP servers, may hold keys) stays local. |
+| Oct 30 | **Hand-written products** for items Channel3 doesn't sell (groceries) use `channel3Id: "manual-<slug>"`. | The purchase plan must not try a Channel3 price refresh for `manual-` ids. |
+| Oct 30 | **`NeedCard.deliveryPhotoUrl`** (nullable) will be added in shared v1.1.0. | Requested by C for delivered tiles; `null` until delivery photos exist (Phase 7). |
+
+Where things go: **decisions** → this table. **Requests and action items for a person** → `HANDOFF.md` under their name.
+**Lessons/mistakes** → the numbered sections below.
+
 ## 1. Environment (Windows + PowerShell)
 
 - **`&&` doesn't chain in Windows PowerShell 5.1.** Use `;` (runs regardless) or check `$LASTEXITCODE` between commands.
@@ -19,6 +33,13 @@ Format of an entry: **problem** → what we saw → fix / what to do.
 - **`git` line endings.** `core.autocrlf=true` on this machine. `.gitattributes` forces `eol=lf` so diffs are identical on
   every OS. Don't remove it. Write generated files as UTF-8 **without BOM** with LF (`New-Object Text.UTF8Encoding($false)`).
 - **Use `$env:TEMP`, never `%TEMP%`** in PowerShell (it becomes a literal folder name).
+- **`Start-Process -PassThru` + `-RedirectStandardOutput` leaves `$p.ExitCode` blank** after `WaitForExit(ms)`, so a
+  check can look green when it never reported. → Run checks directly and read `$LASTEXITCODE`; use `Start-Process` only
+  when you need a hard kill timeout, and then judge by the output, not the exit code.
+- **`Get-CimInstance Win32_OperatingSystem` hung for 2 minutes** (WMI). Don't use WMI/CIM for quick checks.
+- **The web tests once died with "FATAL ERROR: Committing semi space failed … heap out of memory" at ~29 MB of heap.** That
+  means Windows couldn't commit memory (the machine was low on RAM), not a leak. A rerun passed. Close other node
+  processes before suspecting the code.
 
 ## 2. Agent / tooling mistakes to avoid
 
@@ -245,8 +266,9 @@ Format of an entry: **problem** → what we saw → fix / what to do.
   `withRetry` turns that into `502 "The AI service is busy"`, which hides the real cause. Each model has its own allowance
   (`gemini-2.5-flash-lite`, `gemini-3-flash-preview` still answered), but `gemini-flash-latest` was slower than our 25 s timeout
   on a photo. → For anything beyond a few hand tests (evals = 20 inputs × 2 calls, the seed, demo rehearsal, and especially
-  **judging Dec 1–15**) the free tier is not enough: enable billing on the Gemini project before the evals. Flash costs
-  fractions of a cent per intake. To see the real cause of a 502, read the `[ai] … failed { status }` server log line.
+  **judging Dec 1–15**) the Flash free tier is not enough. **Decision (Oct 30): no billing.** Use Flash-Lite as the main
+  model, fall back to other models on 429, and cap the public AI endpoints (see "0. Decisions" at the top). To see the
+  real cause of a 502, read the `[ai] … failed { status }` server log line.
 - **Gemini isn't deterministic even at temperature 0.** The same shelf photo returned 6 of 6 labels most runs but 2 of 6 once.
   The prompt now says every shelf-edge label is one item. 3/3 runs gave 6/6 on `gemini-2.5-flash-lite`; recheck on
   `gemini-2.5-flash` after the quota resets. The result cache (24 h, per process) makes a demo photo stable once it has worked.
