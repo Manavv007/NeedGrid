@@ -373,6 +373,12 @@ export async function runDashboardTurn(req: RelayReq, abort?: AbortSignal): Prom
         model: result.response.modelId,
       });
     },
-    { label: "dashboard", thinkingBudget: 1024, timeoutMs: TURN_TIMEOUT_MS, abortSignal: abort },
+    {
+      label: "dashboard",
+      thinkingBudget: 1024,
+      timeoutMs: TURN_TIMEOUT_MS,
+      abortSignal: abort,
+      waitForQuotaMs: 30_000,
+    },
   );
 }

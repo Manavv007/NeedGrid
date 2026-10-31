@@ -356,6 +356,21 @@ Where things go: **decisions** → this table. **Requests and action items for a
   test cancellation-sensitive routes over real HTTP (`app.listen({ port: 0 })` + `fetch`; see `routes/dashboardAi.test.ts`).
   Caller cancellation now throws `CallCancelled` (no retries, no fallback, no failure log).
 - **Dev only:** a failed dashboard turn is saved to `%TEMP%/needgrid-dashboard-failed-turn.json` so it can be replayed.
+- **Studio's built-in AI team is too chatty for the free tier.** Live Oct 31: one "chart November by category" request
+  went lead → planning → page → lead → planning → page… (~15 model calls), the planning agent described its plan in text
+  instead of calling the plan tool ("No plan found"), and every model hit its per-minute limit ("try again in a
+  minute"). → `agents.ts` now runs ONE `directLlmRunner` agent ("analyst") with Studio's own tools: view_schema,
+  view_page, execute_query, add/position/remove widget, widget/page filters, plus `configure_<widgetId>` for each
+  widget it (or the reader) added. `configureWidget` is bound to one widget when it's listed, so the tool list is
+  rebuilt every round (Studio re-resolves `tools` per round). One chart ≈ 3–4 calls.
+- **Per-minute 429s now wait instead of failing (dashboard only):** `callModel({ waitForQuotaMs: 30_000 })` waits for
+  the soonest model when every model is out of only its per-minute quota (Google's `retryDelay` is honoured). Daily
+  limits are never waited for.
+- **A cast to Studio's widget-state union hung `tsc` for 10+ minutes** (`{ ...widgets, a: {...} } as typeof
+  page.widgets`: TypeScript compares against a 35-type union). Cast through `unknown` instead. To find a slow file:
+  a temporary tsconfig with `"files": [one file]` and `tsc --extendedDiagnostics`.
+- **The test database sometimes answers 500 / fails a migration once** (Neon from a laptop). Rerun the file alone
+  before suspecting the code; it has always passed on the rerun.
 - **Bundle:** the dashboard chunk is ~5.5 MB (1.5 MB gzip), all AG Studio, lazy-loaded on `/dashboard` only.
 - **Licence:** `VITE_AG_STUDIO_LICENSE` (web, public by design). Without it Studio runs with a watermark. Request the trial
   on Mon Nov 2 and give it to A for Render (`needgrid-web` env var, then redeploy).

@@ -272,3 +272,29 @@ describe("geminiAdapter", () => {
     ).toBe(false);
   });
 });
+
+describe("analyst agent helpers", () => {
+  it("configureToolName makes a Gemini-safe function name", async () => {
+    const { configureToolName } = await import("./agents");
+    expect(configureToolName("nov-by-category")).toBe("configure_nov-by-category");
+    expect(configureToolName("chart 1/€")).toBe("configure_chart_1__");
+    expect(configureToolName("x".repeat(100))).toHaveLength(64);
+  });
+
+  it("only widgets the AI or the reader added are configurable, most recent last, at most 4", async () => {
+    const { configurableWidgets } = await import("./agents");
+    const state = defaultReport();
+    const impact = state.pages[0]!;
+    const added = {
+      a: { type: "column-chart-stacked" },
+      b: { type: "pie-chart" },
+      c: { type: "grid" },
+      d: { type: "value" },
+      e: { type: "line-chart" },
+    };
+    impact.widgets = { ...impact.widgets, ...(added as unknown as typeof impact.widgets) };
+    const ids = configurableWidgets({ getState: () => state } as never).map((w) => w.id);
+    expect(ids).toEqual(["b", "c", "d", "e"]);
+    expect(configurableWidgets({ getState: () => defaultReport() } as never)).toEqual([]);
+  });
+});
