@@ -311,3 +311,17 @@ Where things go: **decisions** → this table. **Requests and action items for a
   pooling ON → copy the `-pooler` string into `apps/api/.env`, run `db:migrate`, then `seed --reset`.
 - **Gemini embeddings hit a per-minute 429 during the seed** (105 of 121 succeeded on the first pass). The seed never
   fails because of it; wait a minute and run `seed --embeddings-only`, which only fills the missing ones.
+
+## 15. B: free-tier Gemini guards (Oct 30)
+
+- **Model fallback chain** (`ai/models.ts → callModel`): `GEMINI_MODEL` first, then `gemini-2.5-flash-lite →
+  gemini-2.5-flash → gemini-3-flash-preview`. A 429 marks that model as exhausted (daily quota: until the next Pacific
+  midnight; per-minute: 60 s) and the next model is tried at once. 5xx/timeouts retry twice on the same model, then move
+  on. All models out → `503 UPSTREAM` "The AI is resting, try again tomorrow" (or "…in a minute" if only per-minute
+  limits are hit). Every new AI feature should call `callModel`, not `generateText` with `languageModel()` directly.
+  `withRetry` stays for embeddings (separate quota).
+- **Gemini 3 takes `thinkingLevel`, 2.5 takes `thinkingBudget`** (`googleOptions(budget, modelId)` maps it). Live Oct 30:
+  all three chain models accept our options and structured output, ~1.3–1.9 s for a tiny call.
+- **Daily caps for public AI endpoints** (`ai/dailyCap.ts → takeDailyBudget("match" | "dashboard")`): 150 and 300 per
+  Pacific day, in memory (a restart resets them). Call it first thing in the route handler.
+- **The result cache key uses the primary model id**, so a cached answer is reused whichever fallback produced it.
