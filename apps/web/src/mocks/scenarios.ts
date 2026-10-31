@@ -11,6 +11,11 @@
  *   confirm. A staff note containing "mismatch" does the same without the switch.
  * - `deliveryFail`:   the next delivery photo check doesn't run (score 0, "Automatic check
  *   unavailable; please confirm."), so staff must look at the photo and confirm.
+ * - `amountsChanged`: the next approval of an assistant invoice finds that a donor gave $5 to one of
+ *   its needs since it was proposed, so it fails with "Amounts changed since this was proposed…".
+ * - `assistantError`: the next assistant reply sends a few words, then `{ type: "error" }` and `done`.
+ * - `assistantBadLine`: the next assistant reply contains a line that isn't valid JSON and one that
+ *   isn't a known event (the chat shows a generic error instead of the raw text).
  *
  * One more switch isn't used up: `liveDemo` starts a pretend donor in this tab (liveDemo.ts), so
  * live updates can be watched without a second browser.
@@ -18,7 +23,16 @@
  * MSW handlers only see the API URL, so the page URL is read once when the mock API starts
  * (`?mock=fullyFunded`, `?mock=declined,cancel`, or the param repeated). Tests arm them directly.
  */
-const MOCK_SCENARIOS = ["fullyFunded", "declined", "cancel", "deliveryReview", "deliveryFail"] as const;
+const MOCK_SCENARIOS = [
+  "fullyFunded",
+  "declined",
+  "cancel",
+  "deliveryReview",
+  "deliveryFail",
+  "amountsChanged",
+  "assistantError",
+  "assistantBadLine",
+] as const;
 export type MockScenario = (typeof MOCK_SCENARIOS)[number];
 
 const LIVE_DEMO = "liveDemo";

@@ -21,7 +21,7 @@ import { WaitingOnYou } from "@/features/staff/console/WaitingOnYou";
 import { useStaffOrg } from "@/features/staff/useStaffOrg";
 import { LiveStatus } from "@/features/live/LiveStatus";
 import { useLiveUpdates } from "@/features/live/useLiveUpdates";
-import { useStaffNeeds } from "@/lib/queries";
+import { useAgentActions, useStaffNeeds } from "@/lib/queries";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 
 const PAGE = "mx-auto w-full max-w-300 px-4 pt-6 pb-12 sm:px-6";
@@ -60,6 +60,8 @@ export function StaffConsolePage() {
   const [params, setParams] = useSearchParams();
   const tab = parseTab(params.get("tab"));
   const needs = useStaffNeeds();
+  // "Money action to approve" in Waiting on you: the assistant's pending approvals.
+  const pending = useAgentActions("proposed");
   // Every live update invalidates the staff lists, so rows, counts and tabs follow donations.
   const live = useLiveUpdates(org.slug);
 
@@ -81,7 +83,12 @@ export function StaffConsolePage() {
       </div>
 
       {needs.data ? (
-        <Loaded needs={needs.data.needs} tab={tab} onSelectTab={selectTab} />
+        <Loaded
+          needs={needs.data.needs}
+          approvals={pending.data?.actions.length ?? null}
+          tab={tab}
+          onSelectTab={selectTab}
+        />
       ) : needs.isError ? (
         <ErrorState className="mt-8" onRetry={() => void needs.refetch()} />
       ) : (
@@ -94,18 +101,20 @@ export function StaffConsolePage() {
 
 type LoadedProps = {
   needs: readonly NeedCard[];
+  /** Pending money actions, or null while unknown. */
+  approvals: number | null;
   tab: ConsoleTab;
   onSelectTab: (tab: ConsoleTab) => void;
 };
 
-function Loaded({ needs, tab, onSelectTab }: LoadedProps) {
+function Loaded({ needs, approvals, tab, onSelectTab }: LoadedProps) {
   const counts = countByTab(needs);
   const rows = needsInTab(needs, tab);
   const empty = EMPTY[tab];
 
   return (
     <>
-      <WaitingOnYou counts={counts} approvals={null} />
+      <WaitingOnYou counts={counts} approvals={approvals} />
       <div className="mt-8">
         <Tabs
           value={tab}

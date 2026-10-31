@@ -7,10 +7,10 @@
  *
  * Mutation handlers arrive with their tasks (each in its own group below):
  *   C-3 donations (create order, capture) · C-4 intake + publish/patch · C-7 purchase plan/approve/ordered
- *   C-8 delivery/confirm · C-9 assistant chat (NDJSON) + agent actions · C-10 invoices · P1 match.
+ *   C-8 delivery/confirm · C-9 assistant chat (NDJSON), agent actions, invoices (assistant.ts) and B's
+ *   dashboard reads (dashboard.ts) · P1 match.
  */
 import {
-  ApiError,
   ApprovePurchaseRes,
   CaptureRes,
   ConfirmDeliveryReq,
@@ -31,38 +31,18 @@ import {
   PublishNeedReq,
   PurchasePlanRes,
   PurchaseRes,
-  STAFF_KEY_HEADER,
   StaffMeRes,
   StaffNeedDetailRes,
   StaffNeedListRes,
-  type ErrorCode,
-  type OrgPublic,
 } from "@needgrid/shared";
 import { bypass, delay, http, HttpResponse } from "msw";
-import { z } from "zod";
 import { MOCK_UPLOAD_URL } from "@/lib/mockUploadUrl";
+import { assistantHandlers } from "./assistant";
+import { dashboardHandlers } from "./dashboard";
 import { mockImage } from "./fixtures";
 import { mockIntake } from "./intake";
-import { mockDb, type StaffNeedResult, type StaffRefusal } from "./mockDb";
-
-/** 300–800 ms so loading states are visible in the browser. Tests run without latency. */
-async function latency(): Promise<void> {
-  if (import.meta.env.MODE === "test") return;
-  await delay(300 + Math.floor(Math.random() * 500));
-}
-
-function apiError(status: number, code: ErrorCode, message: string, details?: unknown) {
-  const body = ApiError.parse({ error: details === undefined ? { code, message } : { code, message, details } });
-  return HttpResponse.json(body, { status });
-}
-
-const notFound = (what: string) => apiError(404, "NOT_FOUND", `${what} not found`);
-
-/** Same rule as the API's staff-auth plugin: the passcode picks the org, anything else is 401. */
-function staffOrg(request: Request): OrgPublic | null {
-  return mockDb.orgByStaffKey(request.headers.get(STAFF_KEY_HEADER));
-}
-const unauthorized = () => apiError(401, "UNAUTHORIZED", "Missing or invalid staff key");
+import { mockDb, type StaffNeedResult } from "./mockDb";
+import { apiError, isUuid, latency, notFound, readJson, refusal, staffOrg, unauthorized, validation } from "./respond";
 
 // ---------- public reads ----------
 
@@ -129,14 +109,6 @@ const staffReadHandlers = [
 /** Same check as the API route: anything else never reaches the database or PayPal. */
 const ORDER_ID = /^[A-Z0-9]{5,40}$/;
 
-async function readJson(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    return undefined;
-  }
-}
-
 const donationHandlers = [
   http.post("*/api/donations/orders", async ({ request }) => {
     await latency();
@@ -177,10 +149,6 @@ const donationHandlers = [
 
 // ---------- staff writes (C-4) ----------
 
-const issuesOf = (error: z.ZodError) => ({ issues: error.issues.map((i) => ({ path: i.path, message: i.message })) });
-
-const validation = (error: z.ZodError) => apiError(400, "VALIDATION", "Request is invalid", issuesOf(error));
-
 /** Same check as the API's `assertCloudinaryUrl` (minus the cloud name, which mocks don't have). */
 function isCloudinaryUrl(raw: string): boolean {
   try {
@@ -195,7 +163,7 @@ const INTAKE_LATENCY_MS = 2_000;
 
 function needResponse(result: StaffNeedResult, status = 200) {
   if (result.kind === "notFound") return notFound("Need");
-  if (result.kind === "refused") return apiError(result.status, result.code, result.message, result.details);
+  if (result.kind === "refused") return refusal(result);
   return HttpResponse.json(NeedRes.parse({ need: result.need }), { status });
 }
 
@@ -227,7 +195,7 @@ const staffWriteHandlers = [
     const org = staffOrg(request);
     if (!org) return unauthorized();
     const id = String(params.id);
-    if (!z.uuid().safeParse(id).success) return notFound("Need");
+    if (!isUuid(id)) return notFound("Need");
     const body = PatchNeedReq.safeParse((await readJson(request)) ?? {});
     if (!body.success) return validation(body.error);
     return needResponse(mockDb.patchStaffNeed(org.id, id, body.data));
@@ -238,9 +206,6 @@ const staffWriteHandlers = [
 
 /** B's price check takes 5 to 15 s on the real server; a shorter wait still shows the staged progress. */
 const PURCHASE_PLAN_LATENCY_MS = 1_500;
-
-const isUuid = (id: string) => z.uuid().safeParse(id).success;
-const refusal = (result: StaffRefusal) => apiError(result.status, result.code, result.message, result.details);
 
 const purchaseHandlers = [
   // Body is `{}`: the server picks the offer; nothing about money comes from the browser.
@@ -341,5 +306,7 @@ export const handlers = [
   ...staffWriteHandlers,
   ...purchaseHandlers,
   ...deliveryHandlers,
+  ...assistantHandlers,
+  ...dashboardHandlers,
   ...mockPhotoHandlers,
 ];

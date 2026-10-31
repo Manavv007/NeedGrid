@@ -34,10 +34,18 @@
  *
  * Impact pages are built from the ledger like core/impact.ts: the fixture gifts (`impactRecords`)
  * are donations with allocations too, so their items follow the needs' current state.
+ *
+ * Agent actions mirror A's propose → approve → run (AGENT_A_BACKEND.md §8.6, §8.7): the assistant
+ * mock proposes `create_invoice` with every amount computed here (`computed.planned` = each need's
+ * remaining right now); approve runs only `proposed` actions of the caller's org, re-reads every
+ * remaining amount and fails with "Amounts changed…" if one moved, otherwise creates the sponsor
+ * invoice and a 14-day sponsor hold per need (tiles show it as held). Reject runs nothing.
  */
 import {
+  Cents,
   clampDonation,
   computeTargetCents,
+  CreateInvoiceArgs,
   DELIVERY_MATCH_THRESHOLD,
   DONATABLE_STATUSES,
   formatUsd,
@@ -47,12 +55,16 @@ import {
   remainingCents,
   splitCapture,
   takeFromAllocations,
+  type AGENT_ACTION_STATUSES,
+  type AgentAction,
   type AllocationReason,
   type ApprovePurchaseRes,
   type CaptureRes,
   type ConfirmDeliveryReq,
   type CreateOrderReq,
   type CreateOrderRes,
+  type ActionPreview,
+  type DeliveryPublic,
   type DeliveryReq,
   type DeliveryRes,
   type DeliveryView,
@@ -73,10 +85,13 @@ import {
   type PurchasePlanRes,
   type PurchaseRes,
   type PurchaseView,
+  type SponsorInvoiceView,
   type StaffNeedDetailRes,
   type TimelineEvent,
 } from "@needgrid/shared";
+import { z } from "zod";
 import * as fixtures from "./fixtures";
+import { qrPngDataUrl } from "./qrPng";
 import type { MockScenario } from "./scenarios";
 
 type Reservation = {
@@ -90,6 +105,7 @@ type Reservation = {
 
 type Donation = {
   id: string;
+  orgId: string;
   /** Null for the fixture gifts (they were never a mock PayPal order). */
   orderId: string | null;
   impactToken: string;
@@ -100,6 +116,7 @@ type Donation = {
 };
 
 type Allocation = {
+  id: string;
   donationId: string;
   needId: string;
   /** Signed: a price-drop move takes money off one need (negative) and gives it to another. */
@@ -110,17 +127,26 @@ type Allocation = {
   seed: boolean;
 };
 
+/** A sponsor invoice's hold on one need (reservations.sponsor_invoice_id): donors can't double-fund it. */
+type SponsorHold = { invoiceId: string; needId: string; amountCents: number; expiresAtMs: number };
+
 type State = {
   orgs: OrgPublic[];
   needs: Map<string, fixtures.MockNeed>;
   /** Fixture holds ("someone is paying right now"). They never expire. */
   fixtureHeld: Map<string, number>;
   reservations: Map<string, Reservation>;
+  sponsorHolds: SponsorHold[];
   donations: Donation[];
   allocations: Allocation[];
   /** When a need became funded in this tab (the timeline's "Fully funded" event). */
   fundedAt: Map<string, string>;
   scenarios: Set<MockScenario>;
+  /** Money actions the assistant proposed, newest first, each with its org. */
+  agentActions: Array<{ orgId: string; action: AgentAction }>;
+  sponsorInvoices: Array<{ orgId: string; invoice: SponsorInvoiceView }>;
+  /** Chat request times per staff key (20 a minute, like the API's rate limit). */
+  chatRequests: Map<string, number[]>;
 };
 
 /**
@@ -136,6 +162,7 @@ function seedAllocations(needs: Iterable<fixtures.MockNeed>, records: readonly f
     const startMs = Date.parse(record.donatedAt);
     record.items.forEach(({ needId, amountCents, reason }, i) => {
       out.push({
+        id: crypto.randomUUID(),
         donationId: record.donationId,
         needId,
         amountCents,
@@ -160,6 +187,7 @@ function seedAllocations(needs: Iterable<fixtures.MockNeed>, records: readonly f
     const share = Math.floor(restCents / restDonors);
     for (let i = 0; i < restDonors; i++) {
       out.push({
+        id: crypto.randomUUID(),
         donationId: `seed-${id}-${i + 1}`,
         needId: id,
         amountCents: i === restDonors - 1 ? restCents - share * (restDonors - 1) : share,
@@ -173,15 +201,23 @@ function seedAllocations(needs: Iterable<fixtures.MockNeed>, records: readonly f
 }
 
 /** The fixture gifts as donations, so their impact links work like any other. */
-function fixtureDonations(records: readonly fixtures.ImpactRecord[]): Donation[] {
-  return records.map((record) => ({
-    id: record.donationId,
-    orderId: null,
-    impactToken: record.token,
-    amountCents: record.items.reduce((sum, item) => sum + item.amountCents, 0),
-    donorFirstName: record.donorFirstName,
-    createdAt: record.donatedAt,
-  }));
+function fixtureDonations(
+  records: readonly fixtures.ImpactRecord[],
+  needs: ReadonlyMap<string, fixtures.MockNeed>,
+): Donation[] {
+  return records.map((record) => {
+    const orgId = needs.get(record.items[0]?.needId ?? "")?.card.orgId;
+    if (!orgId) throw new Error(`Mock impact ${record.token}: its first item is not a fixture need`);
+    return {
+      id: record.donationId,
+      orgId,
+      orderId: null,
+      impactToken: record.token,
+      amountCents: record.items.reduce((sum, item) => sum + item.amountCents, 0),
+      donorFirstName: record.donorFirstName,
+      createdAt: record.donatedAt,
+    };
+  });
 }
 
 function freshState(): State {
@@ -191,10 +227,14 @@ function freshState(): State {
     needs,
     fixtureHeld: new Map(fixtures.needs.map((n) => [n.card.id, n.card.heldCents])),
     reservations: new Map(),
-    donations: fixtureDonations(fixtures.impactRecords),
+    sponsorHolds: [],
+    donations: fixtureDonations(fixtures.impactRecords, needs),
     allocations: seedAllocations(needs.values(), fixtures.impactRecords),
     fundedAt: new Map(),
     scenarios: new Set(),
+    agentActions: [],
+    sponsorInvoices: [],
+    chatRequests: new Map(),
   };
 }
 
@@ -248,7 +288,7 @@ function newImpactToken(): string {
 
 // ---------- holds and cards ----------
 
-/** Active, unexpired holds on a need (optionally ignoring one order's own hold). */
+/** Active, unexpired holds on a need (optionally ignoring one order's own hold), sponsor holds included. */
 function heldFor(needId: string, excludeOrderId?: string): number {
   const now = Date.now();
   let held = state.fixtureHeld.get(needId) ?? 0;
@@ -256,6 +296,9 @@ function heldFor(needId: string, excludeOrderId?: string): number {
     if (r.needId === needId && r.status === "active" && r.expiresAtMs > now && r.orderId !== excludeOrderId) {
       held += r.amountCents;
     }
+  }
+  for (const h of state.sponsorHolds) {
+    if (h.needId === needId && h.expiresAtMs > now) held += h.amountCents;
   }
   return held;
 }
@@ -372,7 +415,15 @@ function allocate(donationId: string, need: fixtures.MockNeed, cents: number, re
   if (!Number.isSafeInteger(cents) || cents === 0) throw new Error(`allocate: invalid cents ${cents}`);
   const card = need.card;
   const at = nowIso();
-  state.allocations.push({ donationId, needId: card.id, amountCents: cents, reason, at, seed: false });
+  state.allocations.push({
+    id: crypto.randomUUID(),
+    donationId,
+    needId: card.id,
+    amountCents: cents,
+    reason,
+    at,
+    seed: false,
+  });
   card.fundedCents += cents;
   card.donorCount = donorsOf(card.id);
   card.updatedAt = at;
@@ -629,6 +680,145 @@ function markDelivered(need: fixtures.MockNeed, view: DeliveryView): void {
   publishNeedUpdated(need.card.id);
 }
 
+// ---------- agent actions and sponsor invoices (C-9) ----------
+
+export type AgentActionStatus = (typeof AGENT_ACTION_STATUSES)[number];
+export type AgentActionResult = { kind: "ok"; action: AgentAction } | { kind: "notFound" } | StaffRefusal;
+
+/** A's exact words (§8.6) when an amount moved between proposal and approval. */
+export const AMOUNTS_CHANGED_ERROR = "Amounts changed since this was proposed; ask the assistant again.";
+/** Sponsor holds last 14 days (A §8.6), so the sponsor has time to pay. */
+export const SPONSOR_HOLD_DAYS = 14;
+/** The assistant chat allows this many requests a minute per staff key (B §9.6). */
+export const CHAT_REQUESTS_PER_MINUTE = 20;
+/** What `?mock=amountsChanged` gives the first planned need just before an approval runs. */
+const SIMULATED_GIFT_CENTS = 500;
+
+/** `computed` of a `create_invoice` action (A's proposeAction): every amount, worked out by the server. */
+const InvoicePlan = z.object({
+  planned: z.array(z.object({ needId: z.string(), title: z.string(), amountCents: Cents })).min(1),
+  totalCents: Cents,
+});
+type InvoicePlan = z.infer<typeof InvoicePlan>;
+
+/** Ledger reads for B's dashboard datasets and the mock reconcile report. Copies, never live state. */
+export type LedgerSnapshot = {
+  orgs: OrgPublic[];
+  needs: Array<{ card: NeedCard; timeline: TimelineEvent[]; delivery: DeliveryPublic | null }>;
+  donations: Array<{ id: string; orgId: string; amountCents: number; source: "order" | "seed"; at: string }>;
+  allocations: Array<{
+    id: string;
+    donationId: string;
+    needId: string;
+    amountCents: number;
+    reason: AllocationReason;
+    at: string;
+  }>;
+};
+
+/** PayPal-style invoice number, e.g. "INV2-7KQ2-9DHL-3MZA-XC4P". */
+function newPayPalInvoiceId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  const chars = Array.from(bytes, (b) => ORDER_ID_ALPHABET[b % ORDER_ID_ALPHABET.length]).join("");
+  return `INV2-${chars.slice(0, 4)}-${chars.slice(4, 8)}-${chars.slice(8, 12)}-${chars.slice(12, 16)}`;
+}
+
+/** `preview` as A's proposeAction builds it: every argument and every computed amount, in words. */
+function invoicePreview(args: CreateInvoiceArgs, plan: InvoicePlan): ActionPreview {
+  const who = args.recipientName ?? args.recipientEmail;
+  const needLines = plan.planned.map(({ needId, title, amountCents }) => {
+    const card = state.needs.get(needId)?.card;
+    return { label: card ? `${title} · ${card.quantity} × ${card.unit}` : title, value: formatUsd(amountCents) };
+  });
+  return {
+    title: `Invoice ${who} for ${plural(plan.planned.length, "item", "items")}`,
+    lines: [
+      { label: "Send to", value: args.recipientName ? `${args.recipientName} · ${args.recipientEmail}` : who },
+      ...needLines,
+      ...(args.note ? [{ label: "Note", value: args.note }] : []),
+      {
+        label: "After approval",
+        value: args.send ? "Create, send, and make a QR code" : "Create it as a draft (not sent)",
+      },
+    ],
+    totalCents: plan.totalCents,
+  };
+}
+
+function findAction(orgId: string, id: string): AgentAction | null {
+  return state.agentActions.find((a) => a.orgId === orgId && a.action.id === id)?.action ?? null;
+}
+
+function failAction(action: AgentAction, error: string): void {
+  action.status = "failed";
+  action.error = error;
+}
+
+/** `?mock=amountsChanged`: a donor gives a few dollars to the first planned need right before approval. */
+function simulateGiftBefore(action: AgentAction): void {
+  const plan = InvoicePlan.safeParse(action.computed);
+  const needId = plan.success ? plan.data.planned[0]?.needId : undefined;
+  if (!needId) return;
+  const order = mockDb.createOrder({ needId, amountCents: SIMULATED_GIFT_CENTS, rollOverConsent: true });
+  if (order.kind === "ok") mockDb.capture(order.order.orderId);
+}
+
+/**
+ * The `create_invoice` executor (A §8.6): only the stored args and computed amounts are used. Any
+ * planned need whose remaining amount moved (a donation, a hold, a status change) fails the whole
+ * action. Otherwise: the sponsor invoice (sent, with a payer link and QR code, when `send`), and one
+ * 14-day sponsor hold per need, which every open screen sees as a live update.
+ */
+function executeInvoice(orgId: string, action: AgentAction): void {
+  const plan = InvoicePlan.safeParse(action.computed);
+  const args = CreateInvoiceArgs.safeParse(action.args);
+  if (!plan.success || !args.success) {
+    failAction(action, "This action can't run as stored. Ask the assistant again.");
+    return;
+  }
+  const changed = plan.data.planned.some(({ needId, amountCents }) => {
+    const need = state.needs.get(needId);
+    return (
+      !need ||
+      need.card.orgId !== orgId ||
+      !isDonatable(need.card.status) ||
+      cardOf(need).remainingCents !== amountCents
+    );
+  });
+  if (changed) {
+    failAction(action, AMOUNTS_CHANGED_ERROR);
+    return;
+  }
+
+  const at = nowIso();
+  const paypalInvoiceId = newPayPalInvoiceId();
+  const payerViewUrl = args.data.send ? `https://www.sandbox.paypal.com/invoice/p/#${paypalInvoiceId}` : null;
+  const invoice: SponsorInvoiceView = {
+    id: crypto.randomUUID(),
+    paypalInvoiceId,
+    recipientEmail: args.data.recipientEmail,
+    recipientName: args.data.recipientName ?? null,
+    needIds: plan.data.planned.map((p) => p.needId),
+    amountCents: plan.data.totalCents,
+    status: args.data.send ? "sent" : "draft",
+    payerViewUrl,
+    qrImageDataUrl: payerViewUrl ? qrPngDataUrl(payerViewUrl) : null,
+    createdAt: at,
+  };
+  state.sponsorInvoices.unshift({ orgId, invoice });
+
+  const expiresAtMs = Date.now() + SPONSOR_HOLD_DAYS * 24 * 60 * 60_000;
+  for (const { needId, amountCents } of plan.data.planned) {
+    state.sponsorHolds.push({ invoiceId: invoice.id, needId, amountCents, expiresAtMs });
+    const need = state.needs.get(needId);
+    if (need) need.card.updatedAt = at;
+    publishNeedUpdated(needId);
+  }
+  action.status = "executed";
+  action.executedAt = at;
+  action.result = structuredClone(invoice);
+}
+
 export const mockDb = {
   /** Back to the fixtures (tests call this between cases). */
   reset(): void {
@@ -754,6 +944,7 @@ export const mockDb = {
 
     const donation: Donation = {
       id: crypto.randomUUID(),
+      orgId: need.card.orgId,
       orderId,
       impactToken: newImpactToken(),
       amountCents: reservation.amountCents,
@@ -1155,5 +1346,158 @@ export const mockDb = {
       const sum = sums.get(card.id) ?? 0;
       return sum === card.fundedCents ? [] : [`${card.title}: funded ${card.fundedCents}, allocations ${sum}`];
     });
+  },
+
+  // ---------- assistant (C-9) ----------
+
+  /** The assistant's `list_needs`: the org's needs still taking money, with something left, most urgent first. */
+  openNeedsFor(orgId: string): NeedCard[] {
+    return orgNeeds(orgId)
+      .filter((n) => isDonatable(n.card.status) && roomFor(n) > 0)
+      .sort((a, b) => mostUrgentFirst(a.card, b.card))
+      .map(cardOf);
+  },
+
+  /**
+   * A's proposeAction for `create_invoice` (§8.6, §8.7): args checked with the shared schema, every
+   * need the caller's and donatable, `computed.planned` = each need's remaining now (holds included,
+   * zeros skipped). Never calls "PayPal". Nothing left → 400.
+   */
+  proposeInvoice(orgId: string, rawArgs: unknown, origin: AgentAction["origin"] = "assistant"): AgentActionResult {
+    const parsed = CreateInvoiceArgs.safeParse(rawArgs);
+    if (!parsed.success) return refused(400, "VALIDATION", "The invoice details are invalid");
+    const args = parsed.data;
+    const planned: InvoicePlan["planned"] = [];
+    for (const needId of new Set(args.needIds)) {
+      const need = state.needs.get(needId);
+      if (!need || need.card.orgId !== orgId) return refused(400, "VALIDATION", "Every need must be your charity's");
+      if (!isDonatable(need.card.status)) {
+        return refused(400, "VALIDATION", `"${need.card.title}" isn't taking donations right now`);
+      }
+      const amountCents = cardOf(need).remainingCents;
+      if (amountCents > 0) planned.push({ needId, title: need.card.title, amountCents });
+    }
+    if (planned.length === 0) return refused(400, "VALIDATION", "None of these needs has anything left to raise");
+
+    const plan: InvoicePlan = { planned, totalCents: planned.reduce((sum, p) => sum + p.amountCents, 0) };
+    const action: AgentAction = {
+      id: crypto.randomUUID(),
+      tool: "create_invoice",
+      args: { ...args },
+      computed: { ...plan },
+      preview: invoicePreview(args, plan),
+      status: "proposed",
+      origin,
+      result: null,
+      error: null,
+      createdAt: nowIso(),
+      decidedAt: null,
+      executedAt: null,
+    };
+    state.agentActions.unshift({ orgId, action });
+    return { kind: "ok", action: structuredClone(action) };
+  },
+
+  /** GET /api/staff/agent/actions?status=: this org's actions, newest first. */
+  listAgentActions(orgId: string, status?: AgentActionStatus): AgentAction[] {
+    return state.agentActions
+      .filter((a) => a.orgId === orgId && (!status || a.action.status === status))
+      .map((a) => structuredClone(a.action))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  },
+
+  /**
+   * POST /api/staff/agent/actions/:id/approve (A §8.7): only a `proposed` action of the caller's org
+   * (else 409), which becomes `approved` and then runs its executor with the stored args and
+   * computed amounts only: `executed` with the result, or `failed` with the reason.
+   */
+  approveAgentAction(orgId: string, id: string): AgentActionResult {
+    const action = findAction(orgId, id);
+    if (!action) return { kind: "notFound" };
+    if (action.status !== "proposed") return invalidState(`This action is already ${action.status}`);
+    action.status = "approved";
+    action.decidedAt = nowIso();
+    if (mockDb.takeScenario("amountsChanged")) simulateGiftBefore(action);
+    if (action.tool === "create_invoice") executeInvoice(orgId, action);
+    else failAction(action, "Mock mode can only run invoices.");
+    return { kind: "ok", action: structuredClone(action) };
+  },
+
+  /** POST /api/staff/agent/actions/:id/reject: `proposed` → `rejected`. Nothing runs. */
+  rejectAgentAction(orgId: string, id: string): AgentActionResult {
+    const action = findAction(orgId, id);
+    if (!action) return { kind: "notFound" };
+    if (action.status !== "proposed") return invalidState(`This action is already ${action.status}`);
+    action.status = "rejected";
+    action.decidedAt = nowIso();
+    return { kind: "ok", action: structuredClone(action) };
+  },
+
+  /** GET /api/staff/invoices: this org's sponsor invoices, newest first. */
+  listSponsorInvoices(orgId: string): SponsorInvoiceView[] {
+    return state.sponsorInvoices.filter((i) => i.orgId === orgId).map((i) => structuredClone(i.invoice));
+  },
+
+  /** One chat request for this staff key, if it's within the per-minute limit. */
+  takeChatRequest(staffKey: string, nowMs: number = Date.now()): boolean {
+    const recent = (state.chatRequests.get(staffKey) ?? []).filter((t) => t > nowMs - 60_000);
+    const allowed = recent.length < CHAT_REQUESTS_PER_MINUTE;
+    if (allowed) recent.push(nowMs);
+    state.chatRequests.set(staffKey, recent);
+    return allowed;
+  },
+
+  /**
+   * Every need (as the API would show it now), donation and allocation, for B's datasets and the
+   * reconcile report. Seed donations (the fixture history) exist only as allocations: each becomes
+   * one donation of its allocations' sum, at its first allocation's time.
+   */
+  ledgerSnapshot(): LedgerSnapshot {
+    const known = new Set(state.donations.map((d) => d.id));
+    const seeds = new Map<string, { orgId: string; amountCents: number; at: string }>();
+    for (const a of state.allocations) {
+      if (known.has(a.donationId)) continue;
+      const orgId = state.needs.get(a.needId)?.card.orgId;
+      if (!orgId) continue;
+      const seed = seeds.get(a.donationId);
+      if (!seed) seeds.set(a.donationId, { orgId, amountCents: a.amountCents, at: a.at });
+      else {
+        seed.amountCents += a.amountCents;
+        if (a.at < seed.at) seed.at = a.at;
+      }
+    }
+    const donations: LedgerSnapshot["donations"] = [
+      ...state.donations.map((d) => ({
+        id: d.id,
+        orgId: d.orgId,
+        amountCents: d.amountCents,
+        source: d.orderId === null ? ("seed" as const) : ("order" as const),
+        at: d.createdAt,
+      })),
+      ...[...seeds].map(([id, s]) => ({
+        id,
+        orgId: s.orgId,
+        amountCents: s.amountCents,
+        source: "seed" as const,
+        at: s.at,
+      })),
+    ];
+    return {
+      orgs: structuredClone(state.orgs),
+      needs: [...state.needs.values()].map((n) => ({
+        card: cardOf(n),
+        timeline: timelineOf(n),
+        delivery: n.delivery ? { ...n.delivery } : null,
+      })),
+      donations,
+      allocations: state.allocations.map(({ id, donationId, needId, amountCents, reason, at }) => ({
+        id,
+        donationId,
+        needId,
+        amountCents,
+        reason,
+        at,
+      })),
+    };
   },
 };

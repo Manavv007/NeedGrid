@@ -3,6 +3,7 @@ import { PublicLayout } from "@/components/layout/PublicLayout";
 import { RootLayout } from "@/components/layout/RootLayout";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { StaffGate } from "@/features/staff/StaffGate";
+import { AssistantPage } from "@/pages/AssistantPage";
 import { ImpactPage } from "@/pages/ImpactPage";
 import { IntakePage } from "@/pages/IntakePage";
 import { LandingPage } from "@/pages/LandingPage";
@@ -55,7 +56,7 @@ export const routes: RouteObject[] = [
           { index: true, Component: StaffConsolePage },
           { path: "intake", Component: IntakePage },
           { path: "needs/:id", Component: StaffNeedPage },
-          { path: "assistant", element: <PlaceholderPage title="Assistant" task="C-9" /> },
+          { path: "assistant", Component: AssistantPage },
           { path: "invoices", element: <PlaceholderPage title="Invoices" task="C-10" /> },
         ],
       },
