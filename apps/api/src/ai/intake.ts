@@ -19,7 +19,7 @@ import { z } from "zod";
 import { lookupByUrl, PET_CATEGORY, searchProducts } from "../channel3";
 import { HttpError } from "../lib/http";
 import { loadImage } from "./images";
-import { cached, googleOptions, languageModel, withRetry } from "./models";
+import { cached, callModel } from "./models";
 import { INTAKE_IMAGE_PROMPT, INTAKE_SYSTEM, INTAKE_TEXT_PROMPT, MAX_INTAKE_ITEMS } from "./prompts/intake";
 import { pricePerItemCents, rankMany } from "./rank";
 import { stripControlChars, wrapUntrusted } from "./untrusted";
@@ -83,44 +83,43 @@ export function toExtracted(m: ModelItem): ExtractedItem | null {
 
 /** Gemini extraction, temperature 0, cached 24 h by image URL or text. */
 export async function extractNeeds(input: { imageUrl: string } | { text: string }): Promise<Extraction> {
-  return cached("intake", input, () =>
-    withRetry(
-      async (signal) => {
-        let messages: ModelMessage[];
-        if ("imageUrl" in input) {
-          const image = await loadImage(input.imageUrl);
-          messages = [
-            {
-              role: "user",
-              content: [
-                { type: "text", text: INTAKE_IMAGE_PROMPT },
-                { type: "file", data: image.bytes, mediaType: image.mediaType },
-              ],
-            },
-          ];
-        } else {
-          messages = [
-            { role: "user", content: `${INTAKE_TEXT_PROMPT}\n${wrapUntrusted("needs_list", input.text, 5000)}` },
-          ];
-        }
+  return cached("intake", input, async () => {
+    // Download the image once, not once per model attempt.
+    let messages: ModelMessage[];
+    if ("imageUrl" in input) {
+      const image = await loadImage(input.imageUrl);
+      messages = [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: INTAKE_IMAGE_PROMPT },
+            { type: "file", data: image.bytes, mediaType: image.mediaType },
+          ],
+        },
+      ];
+    } else {
+      messages = [{ role: "user", content: `${INTAKE_TEXT_PROMPT}\n${wrapUntrusted("needs_list", input.text, 5000)}` }];
+    }
+    return callModel(
+      async ({ model, signal, providerOptions }) => {
         const { output } = await generateText({
-          model: languageModel(),
+          model,
           instructions: INTAKE_SYSTEM,
           messages,
           output: Output.object({ schema: IntakeModelSchema }),
           temperature: 0,
           maxRetries: 0,
           abortSignal: signal,
-          providerOptions: googleOptions(1024),
+          providerOptions,
         });
         const items = output.items.flatMap((m) => toExtracted(m) ?? []).slice(0, MAX_INTAKE_ITEMS);
         const warnings = output.warnings.map((w) => clean(w, 200)).filter(Boolean);
         if (output.items.length > MAX_INTAKE_ITEMS) warnings.push(`Only the first ${MAX_INTAKE_ITEMS} items were kept`);
         return { items, warnings };
       },
-      { label: "intake" },
-    ),
-  );
+      { label: "intake", thinkingBudget: 1024 },
+    );
+  });
 }
 
 // ---------------------------------------------------------------------------------------------

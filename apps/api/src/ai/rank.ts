@@ -8,7 +8,7 @@
 import { formatUsd, type ExtractedNeed, type ProductOption, type ProductSnapshot } from "@needgrid/shared";
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { cached, googleOptions, languageModel, withRetry } from "./models";
+import { cached, callModel } from "./models";
 import { RANK_SYSTEM } from "./prompts/rank";
 import { wrapUntrusted } from "./untrusted";
 
@@ -101,21 +101,21 @@ async function scoreChunk(jobs: readonly RankJob[]): Promise<Map<number, Scores>
     ids: j.candidates.map((c) => [c.channel3Id, c.unitPriceCents, c.packSize]),
   }));
   const items = await cached("rank", key, () =>
-    withRetry(
-      async (signal) => {
+    callModel(
+      async ({ model, signal, providerOptions }) => {
         const { output } = await generateText({
-          model: languageModel(),
+          model,
           instructions: RANK_SYSTEM,
           prompt: jobs.map((j, i) => describeJob(i, j)).join("\n\n"),
           output: Output.object({ schema: RankModelSchema }),
           temperature: 0,
           maxRetries: 0,
           abortSignal: signal,
-          providerOptions: googleOptions(0),
+          providerOptions,
         });
         return output.items;
       },
-      { label: "rank" },
+      { label: "rank", thinkingBudget: 0 },
     ),
   );
   const out = new Map<number, Scores>();
