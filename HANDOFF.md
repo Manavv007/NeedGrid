@@ -7,6 +7,8 @@ Format: `- [ ] YYYY-MM-DD from <A|B|C>: <what you need> — <why> (link to PR/is
 
 - [ ] 2026-10-29 from C: please add an optional, additive `deliveryPhotoUrl: z.url().nullable()` to `NeedCard` (null unless the need is delivered with an arrival photo) — delivered tiles on the tile wall and C-5's big-screen wall could then show the arrival photo; today `NeedCard` has no photo, so delivered tiles show the product image and link to the need page, and we don't want one request per tile (PR feat/web-tile-wall)
   - 2026-10-30 A: accepted, shipping as shared v1.1.0 (see C's section). Tick when merged.
+- [ ] 2026-10-30 from C: please consider an additive, optional `plan: { priceChange, money } | null` on `PurchaseView` (filled for `proposed` purchases) — only `PurchasePlanRes` carries `priceChange`/`money`, so when `/staff/needs/:id` is reloaded with a proposed purchase in `StaffNeedDetailRes.purchases`, the card can't say "$7.00 surplus will move to …" without the browser doing money maths; today it shows raised vs new cost and asks staff to check the price again (PR feat/web-purchase)
+- [ ] 2026-10-30 from C: question for approve: `ApprovePurchaseRes.surplusMoved` names one need, but `distribute` can spread a surplus over several — the web toast says "$X moved to <toNeedTitle>" with `amountCents`; please say whether `amountCents` is the total moved or only what reached `toNeedId` (the mocks report the total and the most urgent need) (PR feat/web-purchase)
 
 ## B — AI & Data (apps/api/src/ai, apps/api/src/channel3, apps/api/scripts/seed, apps/web/src/dashboard)
 
@@ -22,6 +24,9 @@ Format: `- [ ] YYYY-MM-DD from <A|B|C>: <what you need> — <why> (link to PR/is
 - [x] 2026-10-30 from A: the skill files you asked about are committed (`.kiro/skills`, `.agents/skills`, `skills-lock.json`); `.kiro/settings/` is now git-ignored for personal config.
 
 - [ ] 2026-10-29 from C: `apps/web/src/dashboard/DashboardPage.tsx` now exists as a placeholder, and `/dashboard` lazy-loads its default export (rendered inside the public layout, between the site header and footer). Design tokens for the AG Studio theme are in `docs/design-tokens.md`. You own `apps/web/src/dashboard/**` from now on: replace the placeholder with the real page — so the dashboard route is ready for your AG Studio work (PR feat/web-scaffold)
+- [ ] 2026-10-30 from C (P1, contract via A): "Re-check with this offer" (NeedManageStates.dc.html) needs a way to send a chosen offer, but `POST /api/staff/needs/:id/purchase-plan` takes `{}` — e.g. an optional `{ offerChannel3Id }` that must match one of the server's own `alternatives`. Until then the web shows `alternatives` for comparison with "Open offer" links only. Also FYI: the mocks use the flag "Price not refreshed: manual product" for `manual-` products and capitalised flags ("Price dropped 8%", "In stock"); the UI shows your flags verbatim either way (PR feat/web-purchase)
+- [ ] 2026-10-31 from C: delivery check — the web shows "The automatic check didn't run. Please look at the photo and confirm." when a delivery has `matchScore` 0 **and** `aiNotes` exactly "Automatic check unavailable; please confirm." (your §9.4 wording). Please keep that string, or tell C if it changes — so staff aren't shown a misleading "0% match" meter when the vision call failed (PR feat/web-delivery-impact)
+- [ ] 2026-10-31 from C: confirm delivery — when staff empty the AI-written donor message and confirm, the web sends `{ message: "" }` (`ConfirmDeliveryReq` allows it); please store that as `message: null` (no donor message), as the mocks do, or say how you want "no message" sent. The web treats an empty message as none either way (PR feat/web-delivery-impact)
 
 ## C — Frontend & Demo (apps/web except src/dashboard, docs/)
 

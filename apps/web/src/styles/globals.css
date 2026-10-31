@@ -52,6 +52,9 @@
   /* Added in C-5 (live updates, big screen) */
   --reconnecting-dot: #fbbf24;
 
+  /* Added in C-7 (purchase plan) */
+  --warning-soft: #fffbeb;
+
   /* Status badges (background / text) */
   --badge-urgent-bg: #fdebdd;
   --badge-urgent-text: #9a3412;
@@ -150,6 +153,7 @@
   --color-quote-text: var(--quote-text);
   --color-confirming-track: var(--confirming-track);
   --color-reconnecting-dot: var(--reconnecting-dot);
+  --color-warning-soft: var(--warning-soft);
   --color-badge-urgent-bg: var(--badge-urgent-bg);
   --color-badge-urgent-text: var(--badge-urgent-text);
   --color-badge-medium-bg: var(--badge-medium-bg);

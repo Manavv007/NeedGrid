@@ -6,17 +6,22 @@
  * VITE_USE_MOCKS=true without an API URL, and http://api.test in tests.
  *
  * Mutation handlers arrive with their tasks (each in its own group below):
- *   C-3 donations (create order, capture) · C-4 intake + publish/patch (below) · C-7 purchase plan/approve/ordered
+ *   C-3 donations (create order, capture) · C-4 intake + publish/patch · C-7 purchase plan/approve/ordered
  *   C-8 delivery/confirm · C-9 assistant chat (NDJSON) + agent actions · C-10 invoices · P1 match.
  */
 import {
   ApiError,
+  ApprovePurchaseRes,
   CaptureRes,
+  ConfirmDeliveryReq,
   CreateOrderReq,
   CreateOrderRes,
+  DeliveryReq,
+  DeliveryRes,
   FullyFundedDetails,
   ImpactRes,
   IntakeReq,
+  MarkOrderedReq,
   NeedDetailRes,
   NeedRes,
   NeedStatus,
@@ -24,6 +29,8 @@ import {
   OrgPageRes,
   PatchNeedReq,
   PublishNeedReq,
+  PurchasePlanRes,
+  PurchaseRes,
   STAFF_KEY_HEADER,
   StaffMeRes,
   StaffNeedDetailRes,
@@ -31,10 +38,12 @@ import {
   type ErrorCode,
   type OrgPublic,
 } from "@needgrid/shared";
-import { delay, http, HttpResponse } from "msw";
+import { bypass, delay, http, HttpResponse } from "msw";
 import { z } from "zod";
+import { MOCK_UPLOAD_URL } from "@/lib/mockUploadUrl";
+import { mockImage } from "./fixtures";
 import { mockIntake } from "./intake";
-import { mockDb, type StaffNeedResult } from "./mockDb";
+import { mockDb, type StaffNeedResult, type StaffRefusal } from "./mockDb";
 
 /** 300–800 ms so loading states are visible in the browser. Tests run without latency. */
 async function latency(): Promise<void> {
@@ -225,4 +234,112 @@ const staffWriteHandlers = [
   }),
 ];
 
-export const handlers = [...publicReadHandlers, ...donationHandlers, ...staffReadHandlers, ...staffWriteHandlers];
+// ---------- purchases (C-7) ----------
+
+/** B's price check takes 5 to 15 s on the real server; a shorter wait still shows the staged progress. */
+const PURCHASE_PLAN_LATENCY_MS = 1_500;
+
+const isUuid = (id: string) => z.uuid().safeParse(id).success;
+const refusal = (result: StaffRefusal) => apiError(result.status, result.code, result.message, result.details);
+
+const purchaseHandlers = [
+  // Body is `{}`: the server picks the offer; nothing about money comes from the browser.
+  http.post("*/api/staff/needs/:id/purchase-plan", async ({ request, params }) => {
+    const org = staffOrg(request);
+    if (!org) return unauthorized();
+    const id = String(params.id);
+    if (!isUuid(id)) return notFound("Need");
+    if (import.meta.env.MODE !== "test") await delay(PURCHASE_PLAN_LATENCY_MS);
+    const result = mockDb.planPurchase(org.id, id);
+    if (result.kind === "notFound") return notFound("Need");
+    if (result.kind === "refused") return refusal(result);
+    return HttpResponse.json(PurchasePlanRes.parse(result.plan));
+  }),
+
+  http.post("*/api/staff/purchases/:id/approve", async ({ request, params }) => {
+    await latency();
+    const org = staffOrg(request);
+    if (!org) return unauthorized();
+    const id = String(params.id);
+    if (!isUuid(id)) return notFound("Purchase");
+    const result = mockDb.approvePurchase(org.id, id);
+    if (result.kind === "notFound") return notFound("Purchase");
+    if (result.kind === "refused") return refusal(result);
+    return HttpResponse.json(ApprovePurchaseRes.parse(result.approval));
+  }),
+
+  http.post("*/api/staff/purchases/:id/ordered", async ({ request, params }) => {
+    await latency();
+    const org = staffOrg(request);
+    if (!org) return unauthorized();
+    const id = String(params.id);
+    if (!isUuid(id)) return notFound("Purchase");
+    const body = MarkOrderedReq.safeParse(await readJson(request));
+    if (!body.success) return validation(body.error);
+    const result = mockDb.markOrdered(org.id, id, body.data);
+    if (result.kind === "notFound") return notFound("Purchase");
+    if (result.kind === "refused") return refusal(result);
+    return HttpResponse.json(PurchaseRes.parse(result.ordered));
+  }),
+];
+
+// ---------- deliveries (C-8) ----------
+
+/** B's photo check takes 5 to 20 s on the real server; a shorter wait still shows the staged progress. */
+const DELIVERY_CHECK_LATENCY_MS = 2_500;
+
+const deliveryHandlers = [
+  // Same order of checks as B's route: the body, then the photo host, then the need and its status.
+  http.post("*/api/staff/needs/:id/delivery", async ({ request, params }) => {
+    const org = staffOrg(request);
+    if (!org) return unauthorized();
+    const id = String(params.id);
+    if (!isUuid(id)) return notFound("Need");
+    const body = DeliveryReq.safeParse(await readJson(request));
+    if (!body.success) return validation(body.error);
+    if (!isCloudinaryUrl(body.data.photoUrl)) {
+      return apiError(400, "VALIDATION", "Images must be uploaded to the NeedGrid Cloudinary account");
+    }
+    if (import.meta.env.MODE !== "test") await delay(DELIVERY_CHECK_LATENCY_MS);
+    const result = mockDb.recordDelivery(org.id, id, body.data);
+    if (result.kind === "notFound") return notFound("Need");
+    if (result.kind === "refused") return refusal(result);
+    return HttpResponse.json(DeliveryRes.parse(result.delivery));
+  }),
+
+  http.post("*/api/staff/deliveries/:id/confirm", async ({ request, params }) => {
+    await latency();
+    const org = staffOrg(request);
+    if (!org) return unauthorized();
+    const id = String(params.id);
+    if (!isUuid(id)) return notFound("Delivery");
+    const body = ConfirmDeliveryReq.safeParse((await readJson(request)) ?? {});
+    if (!body.success) return validation(body.error);
+    const result = mockDb.confirmDelivery(org.id, id, body.data);
+    if (result.kind === "notFound") return notFound("Delivery");
+    if (result.kind === "refused") return refusal(result);
+    return HttpResponse.json(DeliveryRes.parse(result.delivery));
+  }),
+];
+
+/**
+ * Mock mode "uploads" every photo to one fixed Cloudinary-style URL (lib/cloudinary.ts), which isn't
+ * a real image. The browser worker answers it with the mock arrival picture, so a delivery recorded
+ * in mock mode shows a photo on the staff page and the donor's impact page.
+ */
+const mockPhotoHandlers = [
+  http.get(MOCK_UPLOAD_URL, async () => {
+    const picture = await fetch(bypass(mockImage("arrival"))).then((res) => res.arrayBuffer());
+    return HttpResponse.arrayBuffer(picture, { headers: { "content-type": "image/svg+xml" } });
+  }),
+];
+
+export const handlers = [
+  ...publicReadHandlers,
+  ...donationHandlers,
+  ...staffReadHandlers,
+  ...staffWriteHandlers,
+  ...purchaseHandlers,
+  ...deliveryHandlers,
+  ...mockPhotoHandlers,
+];

@@ -8,6 +8,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatDonorCount, formatRelativeTime, formatUsdShort } from "@/lib/format";
+import { staffNeedPath } from "@/lib/links";
 import { usePatchNeed } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { errorMessage } from "../errorMessage";
@@ -65,7 +66,9 @@ function NeedRow({ need }: { need: NeedCard }) {
             iconClassName="size-5"
           />
           <span className="flex min-w-0 flex-col">
-            <strong className="max-w-56 truncate text-sm">{need.title}</strong>
+            <Link to={staffNeedPath(need.id)} className="max-w-56 truncate text-sm text-foreground">
+              <strong>{need.title}</strong>
+            </Link>
             <span className="text-[13px] text-muted-foreground">
               {need.quantity} × {need.unit}
             </span>
@@ -105,7 +108,7 @@ const rowLink = cn(buttonVariants({ variant: "secondary", size: "sm" }));
 
 /** One next action per row: Publish a draft, plan the purchase when funded, record the delivery when ordered. */
 function NextStep({ need }: { need: NeedCard }) {
-  const manage = `/staff/needs/${need.id}`;
+  const manage = staffNeedPath(need.id);
   switch (need.status) {
     case "draft":
       return need.product ? (

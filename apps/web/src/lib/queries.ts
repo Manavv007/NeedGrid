@@ -1,14 +1,21 @@
 import {
+  ApprovePurchaseRes,
   CaptureRes,
+  ConfirmDeliveryReq,
   CreateOrderRes,
+  DeliveryReq,
+  DeliveryRes,
   ImpactRes,
   IntakeReq,
   IntakeRes,
+  MarkOrderedReq,
   NeedDetailRes,
   NeedRes,
   OrgListRes,
   OrgPageRes,
   paths,
+  PurchasePlanRes,
+  PurchaseRes,
   StaffMeRes,
   StaffNeedDetailRes,
   StaffNeedListRes,
@@ -19,7 +26,7 @@ import {
   type PatchNeedReq,
   type PublishNeedReq,
 } from "@needgrid/shared";
-import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { skipToken, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { ApiClientError, apiGet, apiPatch, apiPost } from "./api";
 import { markOwnChange } from "./ownChanges";
 
@@ -34,6 +41,8 @@ export const queryKeys = {
   impact: (token: string) => ["impact", token] as const,
   staffNeeds: (status?: NeedStatus) => ["staffNeeds", status ?? null] as const,
   staffNeed: (id: string) => ["staffNeed", id] as const,
+  /** The last purchase plan this tab checked for a need (filled by usePurchasePlan, never fetched). */
+  purchasePlan: (needId: string) => ["purchasePlan", needId] as const,
   actions: (status?: AgentActionStatus) => ["actions", status ?? null] as const,
   invoices: () => ["invoices"] as const,
 };
@@ -59,10 +68,24 @@ export function useNeed(id: string) {
   });
 }
 
-export function useImpact(token: string) {
+const isNotFoundError = (error: unknown) => error instanceof ApiClientError && error.code === "NOT_FOUND";
+
+type ImpactOptions = {
+  /**
+   * Refetch this often (ms) while the page is visible: the impact page waits for arrival photos.
+   * Stops for a link that doesn't exist. The API answers `cache-control: no-store`, so the browser
+   * keeps no HTTP copy and every refetch reaches the server; this query's cache is the only copy.
+   */
+  refetchInterval?: number;
+};
+
+export function useImpact(token: string, { refetchInterval }: ImpactOptions = {}) {
   return useQuery({
     queryKey: queryKeys.impact(token),
     queryFn: ({ signal }) => apiGet(paths.impact(token), ImpactRes, { signal }),
+    refetchInterval: (query) =>
+      refetchInterval === undefined || isNotFoundError(query.state.error) ? false : refetchInterval,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -122,7 +145,7 @@ export function useCapture() {
 
 // ---------- staff ----------
 
-const STAFF_QUERY_ROOTS = ["staffMe", "staffNeeds", "staffNeed", "actions", "invoices"] as const;
+const STAFF_QUERY_ROOTS = ["staffMe", "staffNeeds", "staffNeed", "purchasePlan", "actions", "invoices"] as const;
 
 const isStaffQuery = (key: readonly unknown[]) => STAFF_QUERY_ROOTS.some((root) => root === key[0]);
 
@@ -204,5 +227,129 @@ export function useIntake() {
   return useMutation({
     mutationFn: ({ req, signal }: { req: IntakeReq; signal?: AbortSignal }) =>
       apiPost(paths.staff.intake, IntakeReq.parse(req), IntakeRes, { staff: true, signal }),
+  });
+}
+
+// ---------- purchases ----------
+
+/** The server refused because the need or purchase changed state: the page should show what it knows now. */
+function refetchOnConflict(queryClient: QueryClient, error: unknown, needId: string): void {
+  if (error instanceof ApiClientError && error.code === "INVALID_STATE") {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.staffNeed(needId) });
+  }
+}
+
+/**
+ * `POST /api/staff/needs/:id/purchase-plan` with `{}`: the server refreshes the price, picks the
+ * offer and computes the money outcome (5 to 15 s). The response is kept per need, because only it
+ * carries `priceChange`, `money` and the other offers; the stored purchase doesn't.
+ */
+export function usePurchasePlan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (needId: string) => apiPost(paths.staff.purchasePlan(needId), {}, PurchasePlanRes, { staff: true }),
+    onSuccess: (plan, needId) => {
+      queryClient.setQueryData(queryKeys.purchasePlan(needId), plan);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.staffNeed(needId) });
+    },
+    onError: (error, needId) => refetchOnConflict(queryClient, error, needId),
+  });
+}
+
+/** The plan this tab last checked for `needId`, or null. Read from the cache only. */
+export function useCheckedPurchasePlan(needId: string): PurchasePlanRes | null {
+  const { data } = useQuery<PurchasePlanRes>({
+    queryKey: queryKeys.purchasePlan(needId),
+    queryFn: skipToken,
+    staleTime: Infinity,
+  });
+  return data ?? null;
+}
+
+/**
+ * `POST /api/staff/purchases/:id/approve` with `{}`. The server moves any surplus to the next need
+ * or raises the target; the response says what happened. Never retried automatically.
+ */
+export function useApprovePurchase() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ purchaseId }: { purchaseId: string; needId: string }) =>
+      apiPost(paths.staff.approvePurchase(purchaseId), {}, ApprovePurchaseRes, { staff: true }),
+    onMutate: ({ needId }) => markOwnChange(needId),
+    onSettled: (_data, _error, { needId }) => markOwnChange(needId),
+    onSuccess: (res) => {
+      invalidateNeedViews(queryClient, res.need);
+      if (res.surplusMoved) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.need(res.surplusMoved.toNeedId) });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.staffNeed(res.surplusMoved.toNeedId) });
+      }
+    },
+    onError: (error, { needId }) => refetchOnConflict(queryClient, error, needId),
+  });
+}
+
+/** `POST /api/staff/purchases/:id/ordered` with the retailer's order number. */
+export function useMarkOrdered() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ purchaseId, orderRef }: { purchaseId: string; needId: string; orderRef: string }) =>
+      apiPost(paths.staff.markOrdered(purchaseId), MarkOrderedReq.parse({ orderRef }), PurchaseRes, { staff: true }),
+    onMutate: ({ needId }) => markOwnChange(needId),
+    onSettled: (_data, _error, { needId }) => markOwnChange(needId),
+    onSuccess: ({ need }) => invalidateNeedViews(queryClient, need),
+    onError: (error, { needId }) => refetchOnConflict(queryClient, error, needId),
+  });
+}
+
+// ---------- deliveries ----------
+
+/**
+ * The server's answer is the need page's new state: put it in the cache at once (so the page never
+ * flashes back to the upload step), then refetch everything the delivery changed. Donors' impact
+ * pages in this tab are refetched too: they show the arrival photo once the need is delivered.
+ */
+function applyDelivery(queryClient: QueryClient, res: DeliveryRes): void {
+  queryClient.setQueryData<StaffNeedDetailRes>(queryKeys.staffNeed(res.need.id), (detail) =>
+    detail ? { ...detail, need: res.need, delivery: res.delivery } : detail,
+  );
+  invalidateNeedViews(queryClient, res.need);
+  void queryClient.invalidateQueries({ queryKey: ["impact"] });
+}
+
+/**
+ * `POST /api/staff/needs/:id/delivery`: the arrival photo's Cloudinary URL and an optional note.
+ * The server checks the photo against the product (5 to 20 s) and decides whether the need is
+ * delivered now or waits for staff to confirm. Never retried automatically.
+ */
+export function useDelivery() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ needId, req }: { needId: string; req: DeliveryReq }) =>
+      apiPost(paths.staff.delivery(needId), DeliveryReq.parse(req), DeliveryRes, { staff: true }),
+    onMutate: ({ needId }) => markOwnChange(needId),
+    onSettled: (_data, _error, { needId }) => markOwnChange(needId),
+    onSuccess: (res) => applyDelivery(queryClient, res),
+    onError: (error, { needId }) => refetchOnConflict(queryClient, error, needId),
+  });
+}
+
+/**
+ * `POST /api/staff/deliveries/:id/confirm`: staff looked at a delivery that needed review. `message`
+ * only when staff changed or wrote the donor message; without it the server keeps its own.
+ */
+export function useConfirmDelivery() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ deliveryId, message }: { deliveryId: string; needId: string; message?: string }) =>
+      apiPost(
+        paths.staff.confirmDelivery(deliveryId),
+        ConfirmDeliveryReq.parse(message === undefined ? {} : { message }),
+        DeliveryRes,
+        { staff: true },
+      ),
+    onMutate: ({ needId }) => markOwnChange(needId),
+    onSettled: (_data, _error, { needId }) => markOwnChange(needId),
+    onSuccess: (res) => applyDelivery(queryClient, res),
+    onError: (error, { needId }) => refetchOnConflict(queryClient, error, needId),
   });
 }
