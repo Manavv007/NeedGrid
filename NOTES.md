@@ -325,3 +325,30 @@ Where things go: **decisions** → this table. **Requests and action items for a
 - **Daily caps for public AI endpoints** (`ai/dailyCap.ts → takeDailyBudget("match" | "dashboard")`): 150 and 300 per
   Pacific day, in memory (a restart resets them). Call it first thing in the route handler.
 - **The result cache key uses the primary model id**, so a cached answer is reused whichever fallback produced it.
+
+## 16. B: AG Studio dashboard (Oct 31)
+
+- **AG Studio 3.0.0 facts (from the installed `.d.ts` + the PayPal boilerplate, which uses the same version):**
+  `AgStudioProvider { licenseKey, modules: [AgStudioAiModule] }` + `AgStudio { data, theme, initialState, mode, ai,
+  onApiReady, onStateUpdated }`. Data = `{ sources: [{ id, data, fields: [{ id, name, format }] }], relationships,
+  calendars }`; formats are `textFormat | integerFormat | decimalFormat | currencyFormat | percentageFormat | dateFormat |
+  dateTimeFormat | booleanFormat`. Aggregations: `sum avg min max count countd first last` (**no median**, so the KPI is
+  "Avg days, funded to delivered"). Calendar fields are `calendar::month` / `calendar::week`. Studio leaves page
+  navigation to the host (`api.setState({ ...s, selectedPageId })`). A saved relative date filter fails to apply on load
+  in 3.0, so date filters start with no period.
+- **The AI adapter contract:** `executeTurn(request, { signal })` → `{ stream, complete }`. Stream = content events only
+  (`TEXT_MESSAGE_START/CONTENT/END`, `TOOL_CALL_START/ARGS/END`); `complete` rejects once on a failed turn and must be
+  marked observed (`void complete.catch(() => {})`). Studio executes tools in the browser, so the server declares them
+  without `execute`. Start the request eagerly, not inside the async generator, or `complete` never settles if only it
+  is awaited.
+- **Relay = option B, not streamed:** the boilerplate's adapter speaks the OpenAI Responses API, which Gemini doesn't
+  offer. Our adapter posts one turn to `POST /api/ai/dashboard-complete` and gets `{ text, toolCalls, finishReason, usage,
+  model }`. Not streaming keeps the free-tier model fallback working (a stream can't switch models once started).
+- **Studio's tool schemas are JSON Schema 2020-12** with `$ref/$defs`, `{ not: {} }` "undefined" sentinels inside
+  `anyOf`, `const`, `additionalProperties`. `toGeminiSchema` rewrites them for Gemini; verified live with a synthetic
+  schema of that shape (flash-lite called the tool with correct arguments). **Not yet verified against Studio's real
+  tools in a browser**: run the page, ask a question, and watch the API log for `[ai] dashboard failed`.
+- **Gemini rejects a function call without a function response**, so `toModelMessages` answers every unanswered call.
+- **Bundle:** the dashboard chunk is ~5.5 MB (1.5 MB gzip), all AG Studio, lazy-loaded on `/dashboard` only.
+- **Licence:** `VITE_AG_STUDIO_LICENSE` (web, public by design). Without it Studio runs with a watermark. Request the trial
+  on Mon Nov 2 and give it to A for Render (`needgrid-web` env var, then redeploy).
