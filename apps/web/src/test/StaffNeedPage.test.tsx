@@ -133,14 +133,16 @@ describe("Staff need page /staff/needs/:id by status", () => {
     expect(within(order).getByRole("button", { name: "Mark as ordered" })).toBeDisabled();
   });
 
-  it("ordered: waiting for delivery with the order number and a delivery placeholder with no actions", async () => {
+  it("ordered: waiting for delivery with the order number, then the delivery panel", async () => {
     await openPage(ID.socks, "Women's socks");
     const ordered = step(/Waiting for delivery/);
     expect(ordered).toHaveTextContent("Target on");
     expect(ordered).toHaveTextContent("TGT-4417-2290");
-    const slot = step(/Record the delivery/);
-    expect(slot).toHaveTextContent("Recording the delivery comes in the next update");
-    expect(within(slot).queryByRole("button")).not.toBeInTheDocument();
+    const panel = step(/Record the delivery/);
+    expect(panel).toHaveTextContent("3 donors waiting for a photo");
+    // Mocks off and no Cloudinary settings: no photo can be uploaded, so nothing pretends to work.
+    expect(panel).toHaveTextContent("Photo upload isn't set up on this site yet");
+    expect(within(panel).getByRole("button", { name: "Check delivery" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Edit need" })).toBeInTheDocument();
   });
 
@@ -148,7 +150,7 @@ describe("Staff need page /staff/needs/:id by status", () => {
     await openPage(ID.diapers3, "Diapers, size 3");
     const card = step(/Delivered, donors have been updated/);
     expect(within(card).getByRole("meter", { name: "Photo match score" })).toHaveAttribute("aria-valuenow", "93");
-    expect(within(card).getByText("Photo match 93%")).toBeInTheDocument();
+    expect(within(card).getByText("93% match")).toBeInTheDocument();
     expect(within(card).getByRole("img", { name: "Diapers, size 3 after it arrived" })).toBeInTheDocument();
     expect(within(card).getByText(/were on the shelf by lunch/)).toBeInTheDocument();
     expect(within(card).getByText("7 donors can now see this photo on their impact page.")).toBeInTheDocument();

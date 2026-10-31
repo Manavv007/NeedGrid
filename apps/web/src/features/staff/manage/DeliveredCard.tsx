@@ -1,14 +1,26 @@
-import { DELIVERY_MATCH_THRESHOLD, type DeliveryView, type NeedCard } from "@needgrid/shared";
-import { Check, ImageIcon } from "lucide-react";
-import { useState } from "react";
+import type { DeliveryView, NeedCard } from "@needgrid/shared";
+import { Check, Sparkles } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { ProductPhoto } from "@/components/ProductPhoto";
-import { formatDonorCount, percentOf } from "@/lib/format";
-import { cn } from "@/lib/utils";
+import { formatDonorCount } from "@/lib/format";
+import { checkDidNotRun, hasMessage } from "../delivery/delivery";
+import { DeliveryPhoto } from "../delivery/DeliveryPhoto";
+import { MatchMeter } from "../delivery/MatchMeter";
 
-type DeliveredCardProps = { need: NeedCard; delivery: DeliveryView | null };
+type DeliveredCardProps = {
+  need: NeedCard;
+  delivery: DeliveryView | null;
+  /** Move focus to the heading: the delivery was just recorded or confirmed on this page. */
+  focusHeading?: boolean;
+};
 
 /** `delivered`: read-only success card (NeedManageStates.dc.html), from `StaffNeedDetailRes.delivery`. */
-export function DeliveredCard({ need, delivery }: DeliveredCardProps) {
+export function DeliveredCard({ need, delivery, focusHeading = false }: DeliveredCardProps) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (focusHeading) headingRef.current?.focus();
+  }, [focusHeading]);
+
   return (
     <section
       aria-labelledby="delivered-heading"
@@ -16,7 +28,12 @@ export function DeliveredCard({ need, delivery }: DeliveredCardProps) {
     >
       <div className="flex items-center gap-2.5 bg-badge-success-bg px-4 py-3.5 sm:px-5.5">
         <Check aria-hidden="true" className="size-4.5 text-badge-success-text" strokeWidth={3} />
-        <h2 id="delivered-heading" className="text-base font-extrabold text-success-strong">
+        <h2
+          id="delivered-heading"
+          ref={headingRef}
+          tabIndex={-1}
+          className="text-base font-extrabold text-success-strong outline-none"
+        >
           Delivered, donors have been updated
         </h2>
       </div>
@@ -28,12 +45,18 @@ export function DeliveredCard({ need, delivery }: DeliveredCardProps) {
             placeholderClassName="rounded-lg"
             iconClassName="size-8"
           />
-          {delivery ? <DeliveryPhoto url={delivery.photoUrl} title={need.title} /> : null}
+          {delivery ? (
+            <DeliveryPhoto
+              url={delivery.photoUrl}
+              alt={`${need.title} after it arrived`}
+              className="size-30 rounded-lg"
+            />
+          ) : null}
         </div>
         <div className="flex min-w-0 flex-[1_1_360px] flex-col gap-2.5">
           <p className="text-lg font-extrabold">{need.title}</p>
-          {delivery ? <MatchScore score={delivery.matchScore} /> : null}
-          {delivery?.message ? (
+          {delivery ? <PhotoCheck delivery={delivery} /> : null}
+          {delivery && hasMessage(delivery.message) ? (
             <p className="rounded-md bg-quote-bg px-3 py-2.5 text-sm leading-normal text-quote-text">
               “{delivery.message}”
             </p>
@@ -48,47 +71,25 @@ export function DeliveredCard({ need, delivery }: DeliveredCardProps) {
   );
 }
 
-function DeliveryPhoto({ url, title }: { url: string; title: string }) {
-  const [failed, setFailed] = useState(false);
-  if (failed) {
+/** The server's photo check: its score, or that staff looked at the photo when the check didn't run. */
+function PhotoCheck({ delivery }: { delivery: DeliveryView }) {
+  if (checkDidNotRun(delivery)) {
     return (
-      <div
-        aria-hidden="true"
-        className="flex size-30 items-center justify-center rounded-lg bg-placeholder-strong text-placeholder-icon"
-      >
-        <ImageIcon className="size-7" strokeWidth={1.5} />
-      </div>
+      <p className="flex items-center gap-1.5 text-sm font-semibold">
+        <Check aria-hidden="true" className="size-4 text-success" strokeWidth={3} />
+        Checked by staff (the automatic check didn&apos;t run)
+      </p>
     );
   }
   return (
-    <img
-      src={url}
-      alt={`${title} after it arrived`}
-      decoding="async"
-      className="size-30 rounded-lg bg-placeholder-strong object-cover"
-      onError={() => setFailed(true)}
-    />
-  );
-}
-
-/** The AI's photo match score as a meter with its number in text (never colour alone). */
-function MatchScore({ score }: { score: number }) {
-  const percent = percentOf(score, 1);
-  const good = score >= DELIVERY_MATCH_THRESHOLD;
-  return (
-    <div className="flex flex-wrap items-center gap-2.5 text-sm">
-      <strong>Photo match {percent}%</strong>
-      <span
-        role="meter"
-        aria-label="Photo match score"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={percent}
-        aria-valuetext={`${percent}%`}
-        className="block h-2 w-40 overflow-hidden rounded-full bg-track"
-      >
-        <span className={cn("block h-full", good ? "bg-success" : "bg-warning")} style={{ width: `${percent}%` }} />
-      </span>
-    </div>
+    <>
+      <MatchMeter score={delivery.matchScore} confirmedByStaff={delivery.confirmedAt !== null} />
+      <p className="flex gap-2 text-sm leading-normal text-soft">
+        <Sparkles aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" />
+        <span>
+          <strong className="text-foreground">AI check:</strong> {delivery.aiNotes}
+        </span>
+      </p>
+    </>
   );
 }

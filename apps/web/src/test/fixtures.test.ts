@@ -9,7 +9,7 @@ import {
   StaffNeedDetailRes,
 } from "@needgrid/shared";
 import { describe, expect, it } from "vitest";
-import { DEMO_IMPACT_TOKEN, freshOffers, impacts, needs, orgs } from "@/mocks/fixtures";
+import { DEMO_IMPACT_TOKEN, freshOffers, impactRecords, needs, orgs } from "@/mocks/fixtures";
 import { mockDb } from "@/mocks/mockDb";
 
 const harborDiapers = "4c1f7a2e-9b3d-4e5f-8a6b-000000000101";
@@ -50,9 +50,16 @@ describe("mock fixtures", () => {
     expect(needs.some((n) => n.card.status === "delivered" && n.delivery?.photoUrl)).toBe(true);
   });
 
-  it("has the demo impact token and it adds up", () => {
-    const impact = ImpactRes.parse(impacts[DEMO_IMPACT_TOKEN]);
+  it("has the demo impact token, built from the ledger, and it adds up", () => {
+    const impact = ImpactRes.parse(mockDb.getImpact(DEMO_IMPACT_TOKEN));
+    expect(impact.donorFirstName).toBe("Sam");
     expect(impact.totalCents).toBe(impact.items.reduce((sum, i) => sum + i.amountCents, 0));
+    // ImpactPhone.dc.html: one delivered item with a photo and one ordered item.
+    expect(impact.items.map((i) => [i.need.status, i.delivery !== null])).toEqual([
+      ["delivered", true],
+      ["ordered", false],
+    ]);
+    expect(mockDb.moneyProblems()).toEqual([]);
   });
 
   it("gives Harbor's tile wall a tile in every visible state and needs in at least 4 categories", () => {
@@ -92,7 +99,7 @@ describe("mock dates follow the clock", () => {
       for (const purchase of purchases) expect(ms(purchase.createdAt)).toBeLessThan(now);
       if (delivery) expect(ms(delivery.deliveredAt)).toBeLessThan(now);
     }
-    expect(ms(ImpactRes.parse(impacts[DEMO_IMPACT_TOKEN]).donatedAt)).toBeLessThan(now);
+    for (const record of impactRecords) expect(ms(record.donatedAt)).toBeLessThan(now);
   });
 
   it("keeps each need's story in order: posted, funded, delivered", () => {

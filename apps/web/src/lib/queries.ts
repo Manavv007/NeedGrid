@@ -1,7 +1,10 @@
 import {
   ApprovePurchaseRes,
   CaptureRes,
+  ConfirmDeliveryReq,
   CreateOrderRes,
+  DeliveryReq,
+  DeliveryRes,
   ImpactRes,
   IntakeReq,
   IntakeRes,
@@ -65,10 +68,24 @@ export function useNeed(id: string) {
   });
 }
 
-export function useImpact(token: string) {
+const isNotFoundError = (error: unknown) => error instanceof ApiClientError && error.code === "NOT_FOUND";
+
+type ImpactOptions = {
+  /**
+   * Refetch this often (ms) while the page is visible: the impact page waits for arrival photos.
+   * Stops for a link that doesn't exist. The API answers `cache-control: no-store`, so the browser
+   * keeps no HTTP copy and every refetch reaches the server; this query's cache is the only copy.
+   */
+  refetchInterval?: number;
+};
+
+export function useImpact(token: string, { refetchInterval }: ImpactOptions = {}) {
   return useQuery({
     queryKey: queryKeys.impact(token),
     queryFn: ({ signal }) => apiGet(paths.impact(token), ImpactRes, { signal }),
+    refetchInterval: (query) =>
+      refetchInterval === undefined || isNotFoundError(query.state.error) ? false : refetchInterval,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -280,6 +297,59 @@ export function useMarkOrdered() {
     onMutate: ({ needId }) => markOwnChange(needId),
     onSettled: (_data, _error, { needId }) => markOwnChange(needId),
     onSuccess: ({ need }) => invalidateNeedViews(queryClient, need),
+    onError: (error, { needId }) => refetchOnConflict(queryClient, error, needId),
+  });
+}
+
+// ---------- deliveries ----------
+
+/**
+ * The server's answer is the need page's new state: put it in the cache at once (so the page never
+ * flashes back to the upload step), then refetch everything the delivery changed. Donors' impact
+ * pages in this tab are refetched too: they show the arrival photo once the need is delivered.
+ */
+function applyDelivery(queryClient: QueryClient, res: DeliveryRes): void {
+  queryClient.setQueryData<StaffNeedDetailRes>(queryKeys.staffNeed(res.need.id), (detail) =>
+    detail ? { ...detail, need: res.need, delivery: res.delivery } : detail,
+  );
+  invalidateNeedViews(queryClient, res.need);
+  void queryClient.invalidateQueries({ queryKey: ["impact"] });
+}
+
+/**
+ * `POST /api/staff/needs/:id/delivery`: the arrival photo's Cloudinary URL and an optional note.
+ * The server checks the photo against the product (5 to 20 s) and decides whether the need is
+ * delivered now or waits for staff to confirm. Never retried automatically.
+ */
+export function useDelivery() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ needId, req }: { needId: string; req: DeliveryReq }) =>
+      apiPost(paths.staff.delivery(needId), DeliveryReq.parse(req), DeliveryRes, { staff: true }),
+    onMutate: ({ needId }) => markOwnChange(needId),
+    onSettled: (_data, _error, { needId }) => markOwnChange(needId),
+    onSuccess: (res) => applyDelivery(queryClient, res),
+    onError: (error, { needId }) => refetchOnConflict(queryClient, error, needId),
+  });
+}
+
+/**
+ * `POST /api/staff/deliveries/:id/confirm`: staff looked at a delivery that needed review. `message`
+ * only when staff changed or wrote the donor message; without it the server keeps its own.
+ */
+export function useConfirmDelivery() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ deliveryId, message }: { deliveryId: string; needId: string; message?: string }) =>
+      apiPost(
+        paths.staff.confirmDelivery(deliveryId),
+        ConfirmDeliveryReq.parse(message === undefined ? {} : { message }),
+        DeliveryRes,
+        { staff: true },
+      ),
+    onMutate: ({ needId }) => markOwnChange(needId),
+    onSettled: (_data, _error, { needId }) => markOwnChange(needId),
+    onSuccess: (res) => applyDelivery(queryClient, res),
     onError: (error, { needId }) => refetchOnConflict(queryClient, error, needId),
   });
 }
