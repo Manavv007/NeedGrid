@@ -284,3 +284,30 @@ Where things go: **decisions** → this table. **Requests and action items for a
 - **PowerShell 5 `Get-Content -Raw` reads UTF-8 files as ANSI** and `Set-Content -Encoding utf8` writes a BOM: a quick regex
   rewrite garbled `→`/`¢` in a test file. → Don't edit source files with PowerShell; use the edit tools. If you must, use
   `[IO.File]::ReadAllText` / `WriteAllText` with `New-Object Text.UTF8Encoding($false)`.
+
+## 14. B: seed script (Oct 29)
+
+- **Usage:** `pnpm --filter @needgrid/api seed [--reset] [--offline] [--yes] [--seed 2026] [--end 2026-11-09]`.
+  `--fetch-only` searches Channel3 for missing products and updates `scripts/seed/products.cache.json` (committed, ~110
+  searches, 726 KB); `--embeddings-only` backfills missing embeddings. Without `--reset` an org that already has needs is
+  skipped, so a rerun never duplicates rows or deletes real sandbox donations.
+- **The whole seed is one transaction** and runs `findMoneyViolations` before COMMIT. A broken invariant rolls back
+  everything, including `--reset`'s TRUNCATE. It runs the same check again after commit (= `check:money`).
+- **Channel3's first result is often not something a charity would buy.** Live examples: a $550 Saks designer coat for
+  "kids winter puffer coat", a $90 Purell refill cartridge for "hand sanitizer", a $428 rug. → Each catalog entry has
+  `match` / `avoid` title regexes and a `maxUnitCents` cap (default $90). The seed fails (and names the entry) if no cached
+  product passes, instead of seeding a wrong product.
+- **November is only in the data if the history reaches it.** History = 8 weeks ending `--end` (default now, never in the
+  future). Seeding on Oct 29 gives Sep–Oct only. For the judged version reseed on Nov 9–11 (`--end` = that day): November
+  is then the last ~10 days, which carry the most donations (times are skewed toward recent).
+- **Seeded delivery photos are the product's Channel3 image** (no real arrival photos exist). The demo's real delivery
+  scene uploads a real photo for the `ordered` hero need.
+- **Demo hero needs** (`HEROES` in `catalog.ts`): Harbor "Diapers, size 4" open with exactly $14 left; Harbor "Infant
+  formula" funded with its stored price ~15% above Channel3's price (purchase-plan scene); Harbor "Baby wipes" ordered
+  (delivery scene); Room 12's four "Winter coats, kids' size N" needs open (sponsor-invoice scene).
+- **`DATABASE_URL` auth failed on Oct 29** (`28P01 password authentication failed for user 'neondb_owner'`) while
+  `TEST_DATABASE_URL` worked. Cause: B's Neon branch had been **deleted by its expiry** (auto-delete wasn't set to never).
+  → When creating a dev branch: Branches → Create branch → parent `production`, expiration **off**. Then Connect →
+  pooling ON → copy the `-pooler` string into `apps/api/.env`, run `db:migrate`, then `seed --reset`.
+- **Gemini embeddings hit a per-minute 429 during the seed** (105 of 121 succeeded on the first pass). The seed never
+  fails because of it; wait a minute and run `seed --embeddings-only`, which only fills the missing ones.
