@@ -325,3 +325,52 @@ Where things go: **decisions** → this table. **Requests and action items for a
 - **Daily caps for public AI endpoints** (`ai/dailyCap.ts → takeDailyBudget("match" | "dashboard")`): 150 and 300 per
   Pacific day, in memory (a restart resets them). Call it first thing in the route handler.
 - **The result cache key uses the primary model id**, so a cached answer is reused whichever fallback produced it.
+
+## 16. B: AG Studio dashboard (Oct 31)
+
+- **AG Studio 3.0.0 facts (from the installed `.d.ts` + the PayPal boilerplate, which uses the same version):**
+  `AgStudioProvider { licenseKey, modules: [AgStudioAiModule] }` + `AgStudio { data, theme, initialState, mode, ai,
+  onApiReady, onStateUpdated }`. Data = `{ sources: [{ id, data, fields: [{ id, name, format }] }], relationships,
+  calendars }`; formats are `textFormat | integerFormat | decimalFormat | currencyFormat | percentageFormat | dateFormat |
+  dateTimeFormat | booleanFormat`. Aggregations: `sum avg min max count countd first last` (**no median**, so the KPI is
+  "Avg days, funded to delivered"). Calendar fields are `calendar::month` / `calendar::week`. Studio leaves page
+  navigation to the host (`api.setState({ ...s, selectedPageId })`). A saved relative date filter fails to apply on load
+  in 3.0, so date filters start with no period.
+- **The AI adapter contract:** `executeTurn(request, { signal })` → `{ stream, complete }`. Stream = content events only
+  (`TEXT_MESSAGE_START/CONTENT/END`, `TOOL_CALL_START/ARGS/END`); `complete` rejects once on a failed turn and must be
+  marked observed (`void complete.catch(() => {})`). Studio executes tools in the browser, so the server declares them
+  without `execute`. Start the request eagerly, not inside the async generator, or `complete` never settles if only it
+  is awaited.
+- **Relay = option B, not streamed:** the boilerplate's adapter speaks the OpenAI Responses API, which Gemini doesn't
+  offer. Our adapter posts one turn to `POST /api/ai/dashboard-complete` and gets `{ text, toolCalls, finishReason, usage,
+  model }`. Not streaming keeps the free-tier model fallback working (a stream can't switch models once started).
+- **Studio's tool schemas are JSON Schema 2020-12** with `$ref/$defs`, `{ not: {} }` "undefined" sentinels inside
+  `anyOf`, `const`, `additionalProperties`. `toGeminiSchema` rewrites them for Gemini; verified live with a synthetic
+  schema of that shape (flash-lite called the tool with correct arguments). **Not yet verified against Studio's real
+  tools in a browser**: run the page, ask a question, and watch the API log for `[ai] dashboard failed`.
+- **Gemini rejects a function call without a function response**, so `toModelMessages` answers every unanswered call.
+- **Bug found Oct 31: every dashboard turn answered 502 "The AI service is busy".** The route cancelled the Gemini call
+  on the request's `"close"` event, and **Node 24 emits `req.raw` "close" as soon as the request body has been read**,
+  not when the client disconnects. Every call was aborted immediately; the abort errors were retried on every model and
+  ended as "busy". `app.inject` tests can't see it. → Listen on `reply.raw.on("close")` and check `writableEnded`, and
+  test cancellation-sensitive routes over real HTTP (`app.listen({ port: 0 })` + `fetch`; see `routes/dashboardAi.test.ts`).
+  Caller cancellation now throws `CallCancelled` (no retries, no fallback, no failure log).
+- **Dev only:** a failed dashboard turn is saved to `%TEMP%/needgrid-dashboard-failed-turn.json` so it can be replayed.
+- **Studio's built-in AI team is too chatty for the free tier.** Live Oct 31: one "chart November by category" request
+  went lead → planning → page → lead → planning → page… (~15 model calls), the planning agent described its plan in text
+  instead of calling the plan tool ("No plan found"), and every model hit its per-minute limit ("try again in a
+  minute"). → `agents.ts` now runs ONE `directLlmRunner` agent ("analyst") with Studio's own tools: view_schema,
+  view_page, execute_query, add/position/remove widget, widget/page filters, plus `configure_<widgetId>` for each
+  widget it (or the reader) added. `configureWidget` is bound to one widget when it's listed, so the tool list is
+  rebuilt every round (Studio re-resolves `tools` per round). One chart ≈ 3–4 calls.
+- **Per-minute 429s now wait instead of failing (dashboard only):** `callModel({ waitForQuotaMs: 30_000 })` waits for
+  the soonest model when every model is out of only its per-minute quota (Google's `retryDelay` is honoured). Daily
+  limits are never waited for.
+- **A cast to Studio's widget-state union hung `tsc` for 10+ minutes** (`{ ...widgets, a: {...} } as typeof
+  page.widgets`: TypeScript compares against a 35-type union). Cast through `unknown` instead. To find a slow file:
+  a temporary tsconfig with `"files": [one file]` and `tsc --extendedDiagnostics`.
+- **The test database sometimes answers 500 / fails a migration once** (Neon from a laptop). Rerun the file alone
+  before suspecting the code; it has always passed on the rerun.
+- **Bundle:** the dashboard chunk is ~5.5 MB (1.5 MB gzip), all AG Studio, lazy-loaded on `/dashboard` only.
+- **Licence:** `VITE_AG_STUDIO_LICENSE` (web, public by design). Without it Studio runs with a watermark. Request the trial
+  on Mon Nov 2 and give it to A for Render (`needgrid-web` env var, then redeploy).

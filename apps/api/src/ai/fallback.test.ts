@@ -9,6 +9,7 @@ import {
   modelChainIds,
   msUntilPacificMidnight,
   quotaKind,
+  retryDelayMs,
   setAiModels,
 } from "./models";
 
@@ -95,6 +96,44 @@ describe("callModel fallback chain", () => {
     await expect(ask()).rejects.toMatchObject({ status: 503, message: AI_BUSY_MINUTE });
   });
 
+  it("with waitForQuotaMs, waits for a per-minute limit to pass instead of failing", async () => {
+    let n = 0;
+    const a = model("a", () =>
+      ++n === 1
+        ? new APICallError({
+            message: "quota",
+            url: "https://x",
+            requestBodyValues: {},
+            statusCode: 429,
+            responseBody: '{"retryDelay":"1s","quotaId":"GenerateRequestsPerMinutePerProjectPerModel-FreeTier"}',
+          })
+        : null,
+    );
+    setAiModels({ language: [a] });
+    const started = Date.now();
+    const text = await callModel(
+      async ({ model, signal, providerOptions }) =>
+        (await generateText({ model, prompt: "hi", maxRetries: 0, abortSignal: signal, providerOptions })).text,
+      { label: "test", thinkingBudget: 0, baseDelayMs: 0, waitForQuotaMs: 5_000 },
+    );
+    expect(text).toBe("a");
+    expect(a.count.n).toBe(2);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(1_000);
+  });
+
+  it("a daily limit is never waited for, even with waitForQuotaMs", async () => {
+    setAiModels({ language: [model("a", () => quota429(true))] });
+    const started = Date.now();
+    await expect(
+      callModel(
+        async ({ model, signal }) =>
+          (await generateText({ model, prompt: "hi", maxRetries: 0, abortSignal: signal })).text,
+        { label: "test", thinkingBudget: 0, baseDelayMs: 0, waitForQuotaMs: 5_000 },
+      ),
+    ).rejects.toMatchObject({ status: 503, message: AI_RESTING });
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
   it("a non-retryable error fails at once with 502, without trying other models", async () => {
     const b = model("b");
     setAiModels({ language: [model("a", () => new Error("bad output")), b] });
@@ -104,6 +143,17 @@ describe("callModel fallback chain", () => {
 });
 
 describe("helpers", () => {
+  it("retryDelayMs reads Google's suggested wait", () => {
+    const withDelay = new APICallError({
+      message: "quota",
+      url: "https://x",
+      requestBodyValues: {},
+      statusCode: 429,
+      responseBody: '{"error":{"details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"7s"}]}}',
+    });
+    expect(retryDelayMs(withDelay)).toBe(7_000);
+    expect(retryDelayMs(server500())).toBeNull();
+  });
   it("quotaKind tells daily from per-minute 429s and ignores other errors", () => {
     expect(quotaKind(quota429(true))).toBe("daily");
     expect(quotaKind(quota429(false))).toBe("minute");

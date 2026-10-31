@@ -354,7 +354,7 @@ export async function runDashboardTurn(req: RelayReq, abort?: AbortSignal): Prom
           : {}),
         maxOutputTokens: MAX_OUTPUT_TOKENS,
         maxRetries: 0,
-        abortSignal: abort ? AbortSignal.any([signal, abort]) : signal,
+        abortSignal: signal,
         providerOptions,
       });
       const text = json && result.output !== undefined ? JSON.stringify(result.output) : result.text;
@@ -373,6 +373,12 @@ export async function runDashboardTurn(req: RelayReq, abort?: AbortSignal): Prom
         model: result.response.modelId,
       });
     },
-    { label: "dashboard", thinkingBudget: 1024, timeoutMs: TURN_TIMEOUT_MS },
+    {
+      label: "dashboard",
+      thinkingBudget: 1024,
+      timeoutMs: TURN_TIMEOUT_MS,
+      abortSignal: abort,
+      waitForQuotaMs: 30_000,
+    },
   );
 }

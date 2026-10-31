@@ -135,6 +135,15 @@ export function quotaKind(err: unknown): "daily" | "minute" | null {
   return /PerDay|per day/i.test(text) ? "daily" : "minute";
 }
 
+/** Milliseconds Google asks us to wait ("retryDelay":"23s" / "Please retry in 23.4s"), or null. */
+export function retryDelayMs(err: unknown): number | null {
+  err = unwrap(err);
+  if (!APICallError.isInstance(err)) return null;
+  const text = `${err.responseBody ?? ""} ${err.message}`;
+  const m = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(text) ?? /retry in (\d+(?:\.\d+)?)s/i.exec(text);
+  return m ? Math.round(Number(m[1]) * 1000) : null;
+}
+
 /** Milliseconds until the next midnight in Pacific time, when Google resets the daily free quota. */
 export function msUntilPacificMidnight(now: Date = new Date()): number {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -149,8 +158,9 @@ export function msUntilPacificMidnight(now: Date = new Date()): number {
   return Math.max(60_000, 86_400_000 - elapsed);
 }
 
-/** Model → time until which it's skipped (quota exhausted). In-memory: a restart forgets, which is harmless. */
-const cooldownUntil = new Map<LanguageModel, number>();
+/** Model → until when it's skipped, and why. In-memory: a restart forgets, which is harmless. */
+const cooldownUntil = new Map<LanguageModel, { until: number; kind: "daily" | "minute" }>();
+const coolingUntil = (m: LanguageModel) => cooldownUntil.get(m)?.until ?? 0;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -204,6 +214,21 @@ export interface CallModelOptions {
   timeoutMs?: number;
   /** Test hook: 0 disables backoff waits. */
   baseDelayMs?: number;
+  /** The caller gave up (e.g. the browser cancelled): stop at once, no retries, no fallback. */
+  abortSignal?: AbortSignal;
+  /**
+   * When every model is out of only its PER-MINUTE quota, wait up to this long for the soonest one to come back
+   * and try again, instead of failing. Default 0. Interactive multi-turn features (the dashboard) set it.
+   */
+  waitForQuotaMs?: number;
+}
+
+/** Thrown when the caller's own abortSignal fired: not a provider failure, never retried or logged as one. */
+export class CallCancelled extends Error {
+  constructor() {
+    super("cancelled by the caller");
+    this.name = "CallCancelled";
+  }
 }
 
 /**
@@ -218,38 +243,57 @@ export async function callModel<T>(fn: (call: ModelCall) => Promise<T>, opts: Ca
   const chain = languageModels();
   const attempts = opts.attempts ?? 2;
   const base = opts.baseDelayMs ?? 500;
+  const waitUntil = Date.now() + (opts.waitForQuotaMs ?? 0);
   let last: unknown;
   let tried = 0;
-  for (const model of chain) {
-    if ((cooldownUntil.get(model) ?? 0) > Date.now()) continue;
-    tried++;
-    for (let i = 0; i < attempts; i++) {
-      try {
-        return await fn({
-          model,
-          signal: AbortSignal.timeout(opts.timeoutMs ?? CALL_TIMEOUT_MS),
-          providerOptions: googleOptions(opts.thinkingBudget, idOf(model)),
-        });
-      } catch (err) {
-        if (err instanceof HttpError) throw err;
-        last = err;
-        const quota = quotaKind(err);
-        if (quota) {
-          cooldownUntil.set(model, Date.now() + (quota === "daily" ? msUntilPacificMidnight() : 60_000));
-          console.warn(`[ai] ${opts.label}: ${idOf(model)} hit its ${quota} quota, trying the next model`);
-          break;
+  for (;;) {
+    for (const model of chain) {
+      if (coolingUntil(model) > Date.now()) continue;
+      tried++;
+      for (let i = 0; i < attempts; i++) {
+        if (opts.abortSignal?.aborted) throw new CallCancelled();
+        const timeout = AbortSignal.timeout(opts.timeoutMs ?? CALL_TIMEOUT_MS);
+        try {
+          return await fn({
+            model,
+            signal: opts.abortSignal ? AbortSignal.any([timeout, opts.abortSignal]) : timeout,
+            providerOptions: googleOptions(opts.thinkingBudget, idOf(model)),
+          });
+        } catch (err) {
+          if (err instanceof HttpError) throw err;
+          if (opts.abortSignal?.aborted) throw new CallCancelled();
+          last = err;
+          const quota = quotaKind(err);
+          if (quota) {
+            const wait =
+              quota === "daily"
+                ? msUntilPacificMidnight()
+                : Math.min(60_000, Math.max(1_000, retryDelayMs(err) ?? 60_000));
+            cooldownUntil.set(model, { until: Date.now() + wait, kind: quota });
+            console.warn(`[ai] ${opts.label}: ${idOf(model)} hit its ${quota} quota, trying the next model`);
+            break;
+          }
+          if (!isRetryable(err)) {
+            logFailure(opts.label, err);
+            throw new HttpError(502, "UPSTREAM", "The AI service is busy, try again");
+          }
+          if (i < attempts - 1) await sleep(base * 2 ** i + Math.random() * base);
         }
-        if (!isRetryable(err)) {
-          logFailure(opts.label, err);
-          throw new HttpError(502, "UPSTREAM", "The AI service is busy, try again");
-        }
-        if (i < attempts - 1) await sleep(base * 2 ** i + Math.random() * base);
       }
     }
+    // Every model is cooling down because of per-minute limits only: wait for the soonest, if allowed.
+    const now = Date.now();
+    const allCooling = chain.every((m) => coolingUntil(m) > now);
+    const onlyMinute = chain.every((m) => cooldownUntil.get(m)?.kind === "minute");
+    const soonestAt = Math.min(...chain.map(coolingUntil));
+    if (!allCooling || !onlyMinute || soonestAt > waitUntil) break;
+    console.warn(`[ai] ${opts.label}: every model is at its per-minute limit, waiting ${soonestAt - now} ms`);
+    await sleep(soonestAt - now + 250);
+    if (opts.abortSignal?.aborted) throw new CallCancelled();
   }
   logFailure(opts.label, last ?? new Error(tried === 0 ? "every model is cooling down" : "no attempt succeeded"));
-  const soonest = Math.min(...chain.map((m) => cooldownUntil.get(m) ?? 0)) - Date.now();
-  if (chain.every((m) => (cooldownUntil.get(m) ?? 0) > Date.now())) {
+  const soonest = Math.min(...chain.map(coolingUntil)) - Date.now();
+  if (chain.every((m) => coolingUntil(m) > Date.now())) {
     throw new HttpError(503, "UPSTREAM", soonest < 5 * 60_000 ? AI_BUSY_MINUTE : AI_RESTING);
   }
   throw new HttpError(502, "UPSTREAM", "The AI service is busy, try again");
