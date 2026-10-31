@@ -306,5 +306,8 @@ Where things go: **decisions** → this table. **Requests and action items for a
   formula" funded with its stored price ~15% above Channel3's price (purchase-plan scene); Harbor "Baby wipes" ordered
   (delivery scene); Room 12's four "Winter coats, kids' size N" needs open (sponsor-invoice scene).
 - **`DATABASE_URL` auth failed on Oct 29** (`28P01 password authentication failed for user 'neondb_owner'`) while
-  `TEST_DATABASE_URL` worked. Neon passwords change when someone resets them (Neon console → Roles → reset password), which
-  invalidates every saved connection string for that branch. → Copy a fresh pooled string from Neon → Connect.
+  `TEST_DATABASE_URL` worked. Cause: B's Neon branch had been **deleted by its expiry** (auto-delete wasn't set to never).
+  → When creating a dev branch: Branches → Create branch → parent `production`, expiration **off**. Then Connect →
+  pooling ON → copy the `-pooler` string into `apps/api/.env`, run `db:migrate`, then `seed --reset`.
+- **Gemini embeddings hit a per-minute 429 during the seed** (105 of 121 succeeded on the first pass). The seed never
+  fails because of it; wait a minute and run `seed --embeddings-only`, which only fills the missing ones.
