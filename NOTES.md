@@ -349,6 +349,13 @@ Where things go: **decisions** → this table. **Requests and action items for a
   schema of that shape (flash-lite called the tool with correct arguments). **Not yet verified against Studio's real
   tools in a browser**: run the page, ask a question, and watch the API log for `[ai] dashboard failed`.
 - **Gemini rejects a function call without a function response**, so `toModelMessages` answers every unanswered call.
+- **Bug found Oct 31: every dashboard turn answered 502 "The AI service is busy".** The route cancelled the Gemini call
+  on the request's `"close"` event, and **Node 24 emits `req.raw` "close" as soon as the request body has been read**,
+  not when the client disconnects. Every call was aborted immediately; the abort errors were retried on every model and
+  ended as "busy". `app.inject` tests can't see it. → Listen on `reply.raw.on("close")` and check `writableEnded`, and
+  test cancellation-sensitive routes over real HTTP (`app.listen({ port: 0 })` + `fetch`; see `routes/dashboardAi.test.ts`).
+  Caller cancellation now throws `CallCancelled` (no retries, no fallback, no failure log).
+- **Dev only:** a failed dashboard turn is saved to `%TEMP%/needgrid-dashboard-failed-turn.json` so it can be replayed.
 - **Bundle:** the dashboard chunk is ~5.5 MB (1.5 MB gzip), all AG Studio, lazy-loaded on `/dashboard` only.
 - **Licence:** `VITE_AG_STUDIO_LICENSE` (web, public by design). Without it Studio runs with a watermark. Request the trial
   on Mon Nov 2 and give it to A for Render (`needgrid-web` env var, then redeploy).

@@ -204,6 +204,16 @@ export interface CallModelOptions {
   timeoutMs?: number;
   /** Test hook: 0 disables backoff waits. */
   baseDelayMs?: number;
+  /** The caller gave up (e.g. the browser cancelled): stop at once, no retries, no fallback. */
+  abortSignal?: AbortSignal;
+}
+
+/** Thrown when the caller's own abortSignal fired: not a provider failure, never retried or logged as one. */
+export class CallCancelled extends Error {
+  constructor() {
+    super("cancelled by the caller");
+    this.name = "CallCancelled";
+  }
 }
 
 /**
@@ -224,14 +234,17 @@ export async function callModel<T>(fn: (call: ModelCall) => Promise<T>, opts: Ca
     if ((cooldownUntil.get(model) ?? 0) > Date.now()) continue;
     tried++;
     for (let i = 0; i < attempts; i++) {
+      if (opts.abortSignal?.aborted) throw new CallCancelled();
+      const timeout = AbortSignal.timeout(opts.timeoutMs ?? CALL_TIMEOUT_MS);
       try {
         return await fn({
           model,
-          signal: AbortSignal.timeout(opts.timeoutMs ?? CALL_TIMEOUT_MS),
+          signal: opts.abortSignal ? AbortSignal.any([timeout, opts.abortSignal]) : timeout,
           providerOptions: googleOptions(opts.thinkingBudget, idOf(model)),
         });
       } catch (err) {
         if (err instanceof HttpError) throw err;
+        if (opts.abortSignal?.aborted) throw new CallCancelled();
         last = err;
         const quota = quotaKind(err);
         if (quota) {
