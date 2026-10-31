@@ -1,4 +1,6 @@
 import {
+  AgentActionListRes,
+  AgentActionRes,
   ApprovePurchaseRes,
   CaptureRes,
   ConfirmDeliveryReq,
@@ -16,10 +18,12 @@ import {
   paths,
   PurchasePlanRes,
   PurchaseRes,
+  SponsorInvoiceListRes,
   StaffMeRes,
   StaffNeedDetailRes,
   StaffNeedListRes,
   type AGENT_ACTION_STATUSES,
+  type AgentAction,
   type CreateOrderReq,
   type NeedCard,
   type NeedStatus,
@@ -28,9 +32,10 @@ import {
 } from "@needgrid/shared";
 import { skipToken, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { ApiClientError, apiGet, apiPatch, apiPost } from "./api";
+import { clearChatTranscript } from "./chatTranscript";
 import { markOwnChange } from "./ownChanges";
 
-type AgentActionStatus = (typeof AGENT_ACTION_STATUSES)[number];
+export type AgentActionStatus = (typeof AGENT_ACTION_STATUSES)[number];
 
 /** Query keys (brief §7.5). Mutations and live updates invalidate or patch exactly these. */
 export const queryKeys = {
@@ -44,6 +49,11 @@ export const queryKeys = {
   /** The last purchase plan this tab checked for a need (filled by usePurchasePlan, never fetched). */
   purchasePlan: (needId: string) => ["purchasePlan", needId] as const,
   actions: (status?: AgentActionStatus) => ["actions", status ?? null] as const,
+  /**
+   * The furthest-along copy of one agent action this tab has seen (from a list, a stream event or a
+   * decision), shared by every card that shows it. Never fetched on its own.
+   */
+  action: (id: string) => ["action", id] as const,
   invoices: () => ["invoices"] as const,
 };
 
@@ -145,7 +155,15 @@ export function useCapture() {
 
 // ---------- staff ----------
 
-const STAFF_QUERY_ROOTS = ["staffMe", "staffNeeds", "staffNeed", "purchasePlan", "actions", "invoices"] as const;
+const STAFF_QUERY_ROOTS = [
+  "staffMe",
+  "staffNeeds",
+  "staffNeed",
+  "purchasePlan",
+  "actions",
+  "action",
+  "invoices",
+] as const;
 
 const isStaffQuery = (key: readonly unknown[]) => STAFF_QUERY_ROOTS.some((root) => root === key[0]);
 
@@ -153,6 +171,7 @@ const isStaffQuery = (key: readonly unknown[]) => STAFF_QUERY_ROOTS.some((root) 
 export function clearStaffQueries(queryClient: QueryClient): void {
   void queryClient.cancelQueries({ predicate: (query) => isStaffQuery(query.queryKey) });
   queryClient.removeQueries({ predicate: (query) => isStaffQuery(query.queryKey) });
+  clearChatTranscript();
 }
 
 /** `GET /api/staff/me`: whose console this is. StaffGate calls it once; everything else reads the cache. */
@@ -351,5 +370,132 @@ export function useConfirmDelivery() {
     onSettled: (_data, _error, { needId }) => markOwnChange(needId),
     onSuccess: (res) => applyDelivery(queryClient, res),
     onError: (error, { needId }) => refetchOnConflict(queryClient, error, needId),
+  });
+}
+
+// ---------- assistant: money actions and invoices ----------
+
+/** How far along an action is. A decision is final: proposed → approved (running) → executed / failed / rejected. */
+const ACTION_PROGRESS: Readonly<Record<AgentActionStatus, number>> = {
+  proposed: 0,
+  approved: 1,
+  executed: 2,
+  failed: 2,
+  rejected: 2,
+};
+
+/** The further-along of two copies of one action, so a slow list response can never undo a decision on screen. */
+export function newerAction(known: AgentAction | undefined, incoming: AgentAction): AgentAction {
+  if (!known) return incoming;
+  return ACTION_PROGRESS[incoming.status] >= ACTION_PROGRESS[known.status] ? incoming : known;
+}
+
+/** Share the server's copy of an action with every card showing it (keeps the furthest-along copy). */
+export function rememberAction(queryClient: QueryClient, action: AgentAction): void {
+  queryClient.setQueryData<AgentAction>(queryKeys.action(action.id), (known) => newerAction(known, action));
+}
+
+/** The assistant just proposed `action`: it joins the pending list at once, before the next refetch. */
+export function addProposedAction(queryClient: QueryClient, action: AgentAction): void {
+  rememberAction(queryClient, action);
+  queryClient.setQueryData<AgentActionListRes>(queryKeys.actions("proposed"), (list) =>
+    list && !list.actions.some((a) => a.id === action.id) ? { actions: [action, ...list.actions] } : list,
+  );
+}
+
+function actionsQueryFn(queryClient: QueryClient, status?: AgentActionStatus) {
+  return async ({ signal }: { signal: AbortSignal }) => {
+    const path = status ? `${paths.staff.actions}?status=${status}` : paths.staff.actions;
+    const res = await apiGet(path, AgentActionListRes, { staff: true, signal });
+    for (const action of res.actions) rememberAction(queryClient, action);
+    return res;
+  };
+}
+
+type AgentActionsOptions = {
+  /** Poll this often (ms) while the tab is visible. */
+  refetchInterval?: number | false;
+  enabled?: boolean;
+};
+
+/**
+ * `GET /api/staff/agent/actions?status=`, newest first. No status = every action (the "Recent"
+ * list). Refetched whenever staff come back to the tab, so a decision made elsewhere shows up.
+ */
+export function useAgentActions(status?: AgentActionStatus, { refetchInterval, enabled }: AgentActionsOptions = {}) {
+  const queryClient = useQueryClient();
+  return useQuery({
+    queryKey: queryKeys.actions(status),
+    queryFn: actionsQueryFn(queryClient, status),
+    refetchOnWindowFocus: "always",
+    refetchInterval: refetchInterval ?? false,
+    refetchIntervalInBackground: false,
+    enabled,
+  });
+}
+
+/** The newest copy of `action` this tab knows (the prop may be an older snapshot, e.g. from the stream). */
+export function useLatestAction(action: AgentAction): AgentAction {
+  const { data } = useQuery<AgentAction>({
+    queryKey: queryKeys.action(action.id),
+    queryFn: skipToken,
+    staleTime: Infinity,
+  });
+  return newerAction(data, action);
+}
+
+/** Every action again, now (after a 409: someone decided it elsewhere; show what really happened). */
+export function refreshActions(queryClient: QueryClient): Promise<unknown> {
+  void queryClient.invalidateQueries({ queryKey: ["actions"] });
+  return queryClient
+    .fetchQuery({ queryKey: queryKeys.actions(), queryFn: actionsQueryFn(queryClient), staleTime: 0 })
+    .catch(() => undefined);
+}
+
+export type ActionDecision = "approve" | "reject";
+
+/** Mutation key of the decision on one action: every card for that action sees it pending. */
+export const decideActionKey = (actionId: string) => ["decideAction", actionId] as const;
+
+const INVOICE_TOOLS: ReadonlyArray<AgentAction["tool"]> = ["create_invoice", "send_invoice"];
+
+/** What a decision changed: the action everywhere, the lists, and for an executed invoice its holds and the invoices. */
+function applyDecision(queryClient: QueryClient, action: AgentAction): void {
+  rememberAction(queryClient, action);
+  void queryClient.invalidateQueries({ queryKey: ["actions"] });
+  if (action.status !== "executed") return;
+  if (INVOICE_TOOLS.includes(action.tool)) void queryClient.invalidateQueries({ queryKey: queryKeys.invoices() });
+  // Sponsor holds (and refunds) change what's left on needs: every view of them is out of date.
+  for (const root of ["staffNeeds", "staffNeed", "org", "need", "orgs"] as const) {
+    void queryClient.invalidateQueries({ queryKey: [root] });
+  }
+}
+
+/**
+ * `POST /api/staff/agent/actions/:id/approve` or `/reject` with `{}` → the action's final state. The
+ * server runs only what it stored, only once (a second approve is `409 INVALID_STATE`), and the
+ * caller guards against starting two. Never retried automatically.
+ */
+export function useDecideAction(actionId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: decideActionKey(actionId),
+    mutationFn: (decision: ActionDecision) =>
+      apiPost(
+        decision === "approve" ? paths.staff.approveAction(actionId) : paths.staff.rejectAction(actionId),
+        {},
+        AgentActionRes,
+        { staff: true },
+      ),
+    onSuccess: ({ action }) => applyDecision(queryClient, action),
+  });
+}
+
+/** `GET /api/staff/invoices`: the charity's sponsor invoices. */
+export function useInvoices({ enabled }: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: queryKeys.invoices(),
+    queryFn: ({ signal }) => apiGet(paths.staff.invoices, SponsorInvoiceListRes, { staff: true, signal }),
+    enabled,
   });
 }

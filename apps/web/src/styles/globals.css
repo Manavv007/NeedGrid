@@ -242,3 +242,27 @@ html[data-display="wall"] {
     scroll-behavior: auto !important;
   }
 }
+
+/*
+ * Printing while a dialog marked data-print="sheet" is open (the invoice QR code, C-9): only that
+ * dialog goes on paper, as a plain block, dark text on white. Radix portals the dialog straight into
+ * <body>, so everything else at that level (the app, the overlay) is hidden.
+ */
+@media print {
+  body:has([data-print="sheet"]) > :not([data-print="sheet"]):not(:has([data-print="sheet"])) {
+    display: none !important;
+  }
+
+  [data-print="sheet"] {
+    position: static !important;
+    inset: auto !important;
+    transform: none !important;
+    width: auto !important;
+    max-width: none !important;
+    margin: 2cm auto !important;
+    box-shadow: none !important;
+    animation: none !important;
+    background: var(--surface) !important;
+    color: var(--text) !important;
+  }
+}

@@ -40,3 +40,20 @@ export function externalHttpUrl(raw: string): string | null {
     return null;
   }
 }
+
+/** Payment links (PayPal invoices) only ever open over https. Anything else → null. */
+export function httpsUrl(raw: string | null): string | null {
+  if (raw === null) return null;
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Staff: the sponsor invoices page. */
+export const STAFF_INVOICES_PATH = "/staff/invoices";
+
+/** Staff: the assistant. */
+export const STAFF_ASSISTANT_PATH = "/staff/assistant";

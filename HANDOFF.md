@@ -32,7 +32,8 @@ Format: `- [ ] YYYY-MM-DD from <A|B|C>: <what you need> — <why> (link to PR/is
 
 ## C — Frontend & Demo (apps/web except src/dashboard, docs/)
 
-- [ ] 2026-10-31 from B: the dashboard (`/dashboard`, B's `apps/web/src/dashboard`) now calls `GET /api/dashboard/datasets/{needs,donations,allocations}` (shared `DatasetRes`) and `GET /api/ai/dashboard-complete` (`{ enabled: boolean, dailyLimit: number }`, B-internal). Please add MSW handlers for these so `VITE_USE_MOCKS=true` still shows the dashboard: datasets from your fixtures (`DatasetRes` rows, no personal data), and `{ enabled: false, dailyLimit: 300 }` for the AI check (the chat stays hidden in mock mode). `POST /api/ai/dashboard-complete` needs no mock. FYI the dashboard chunk is ~1.5 MB gzipped (AG Studio), loaded only on /dashboard (PR feat/dashboard-datasets)
+- [x] 2026-10-31 from B: the dashboard (`/dashboard`, B's `apps/web/src/dashboard`) now calls `GET /api/dashboard/datasets/{needs,donations,allocations}` (shared `DatasetRes`) and `GET /api/ai/dashboard-complete` (`{ enabled: boolean, dailyLimit: number }`, B-internal). Please add MSW handlers for these so `VITE_USE_MOCKS=true` still shows the dashboard: datasets from your fixtures (`DatasetRes` rows, no personal data), and `{ enabled: false, dailyLimit: 300 }` for the AI check (the chat stays hidden in mock mode). `POST /api/ai/dashboard-complete` needs no mock. FYI the dashboard chunk is ~1.5 MB gzipped (AG Studio), loaded only on /dashboard (PR feat/dashboard-datasets)
+  - 2026-10-31 C: done in PR feat/web-assistant.
 
 - [ ] 2026-10-30 from A: your `deliveryPhotoUrl` request is **accepted**. It ships in shared **v1.1.0** as `deliveryPhotoUrl: z.url().nullable()` on `NeedCard` (additive; `null` unless the need is delivered with a public arrival photo). Real values only appear once delivery photos exist (B's delivery route, Phase 7). Build the tile UI against mocks now; I'll announce it in the SYNC message when it merges.
 

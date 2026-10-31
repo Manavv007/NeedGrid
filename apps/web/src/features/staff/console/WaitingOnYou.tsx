@@ -1,12 +1,13 @@
 import { Link } from "react-router";
 import { features } from "@/lib/features";
+import { STAFF_ASSISTANT_PATH } from "@/lib/links";
 import { consoleTabPath, type ConsoleTab } from "./consoleTabs";
 
 type WaitingOnYouProps = {
   counts: Readonly<Record<ConsoleTab, number>>;
   /**
    * Money actions the assistant proposed that still need approval. `null` while the count isn't
-   * known; the card also stays hidden until the `moneyActions` flag is on (C-9 builds the list).
+   * known; the card also needs the `moneyActions` flag (on since C-9).
    */
   approvals: number | null;
 };
@@ -35,9 +36,9 @@ export function WaitingOnYou({ counts, approvals }: WaitingOnYouProps) {
     cards.push({
       key: "approvals",
       count: approvals,
-      title: "Money action to approve",
+      title: approvals === 1 ? "Money action to approve" : "Money actions to approve",
       hint: "From the assistant",
-      to: "/staff/assistant",
+      to: STAFF_ASSISTANT_PATH,
     });
   }
   const waiting = cards.filter((card) => card.count > 0);

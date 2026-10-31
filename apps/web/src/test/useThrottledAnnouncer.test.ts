@@ -47,4 +47,18 @@ describe("useThrottledAnnouncer", () => {
     unmount();
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it("with `combine`, joins everything that waited instead of keeping only the newest", () => {
+    const { result } = renderHook(() =>
+      useThrottledAnnouncer(2_000, { combine: (waiting, next) => `${waiting} ${next}` }),
+    );
+    act(() => result.current.announce("Let me check."));
+    expect(result.current.message).toBe("Let me check.");
+    act(() => result.current.announce("Looking up your needs…"));
+    act(() => result.current.announce("I found 3 items."));
+    act(() => vi.advanceTimersByTime(1_999));
+    expect(result.current.message).toBe("Let me check.");
+    act(() => vi.advanceTimersByTime(1));
+    expect(result.current.message).toBe("Looking up your needs… I found 3 items.");
+  });
 });
