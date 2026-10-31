@@ -1,5 +1,5 @@
 import type { NeedCard } from "@needgrid/shared";
-import { Plus } from "lucide-react";
+import { Plus, Printer } from "lucide-react";
 import { Link, useSearchParams } from "react-router";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
@@ -21,6 +21,8 @@ import { WaitingOnYou } from "@/features/staff/console/WaitingOnYou";
 import { useStaffOrg } from "@/features/staff/useStaffOrg";
 import { LiveStatus } from "@/features/live/LiveStatus";
 import { useLiveUpdates } from "@/features/live/useLiveUpdates";
+import { features } from "@/lib/features";
+import { orgFlyerPath } from "@/lib/links";
 import { useAgentActions, useStaffNeeds } from "@/lib/queries";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 
@@ -76,10 +78,18 @@ export function StaffConsolePage() {
     <div className={PAGE}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-3xl font-extrabold tracking-[-0.03em]">Needs</h1>
-        <Link to="/staff/intake" className={buttonVariants({ size: "lg" })}>
-          <Plus aria-hidden="true" strokeWidth={2.5} />
-          Add needs
-        </Link>
+        <div className="flex flex-wrap gap-2.5">
+          {features.flyers ? (
+            <Link to={orgFlyerPath(org.slug)} className={buttonVariants({ variant: "outline", size: "lg" })}>
+              <Printer aria-hidden="true" />
+              Print flyer
+            </Link>
+          ) : null}
+          <Link to="/staff/intake" className={buttonVariants({ size: "lg" })}>
+            <Plus aria-hidden="true" strokeWidth={2.5} />
+            Add needs
+          </Link>
+        </div>
       </div>
 
       {needs.data ? (

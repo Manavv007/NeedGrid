@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { Toaster } from "@/components/ui/sonner";
 import { ApprovalCard } from "@/features/assistant/ApprovalCard";
-import { ORG_IDS } from "@/mocks/fixtures";
+import { ORG_IDS, sponsorInvoices } from "@/mocks/fixtures";
 import { AMOUNTS_CHANGED_ERROR, mockDb } from "@/mocks/mockDb";
 import { server } from "@/mocks/node";
 import { createTestQueryClient } from "./render";
@@ -155,7 +155,9 @@ describe("ApprovalCard: deciding exactly once", () => {
     expect(reject).toHaveBeenCalledTimes(1);
     expect(approve).not.toHaveBeenCalled();
     expect(await screen.findByText("Rejected. Nothing was sent.")).toBeInTheDocument();
-    expect(mockDb.listSponsorInvoices(ROOM12)).toEqual([]);
+    expect(mockDb.listSponsorInvoices(ROOM12)).toEqual(
+      sponsorInvoices.filter((r) => r.orgId === ROOM12).map((r) => r.invoice),
+    );
   });
 
   it("a 409 (decided elsewhere) refetches and shows the real outcome, without an error", async () => {

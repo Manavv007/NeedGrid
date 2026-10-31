@@ -103,6 +103,18 @@ Warm, trustworthy, concrete. Real product photos are the hero; the UI stays calm
 - Printing the invoice QR dialog puts only that dialog on paper (`data-print="sheet"`, `@media print` in
   `globals.css`): QR code, recipient and amount, `--text` on `--surface`.
 
+## Used in C-10 (invoices, Match me, QR flyers): no new tokens
+
+- Sponsor invoice status badges, always text + icon: Draft `--badge-low-*` (neutral), Sent `--badge-info-*`, Paid
+  `--badge-success-*`, Cancelled muted (`--surface` with a `--border-strong` outline and `--text-soft` text).
+- Match me box: `--staff-header` background, `--on-primary` heading, `--staff-header-link` labels and helper text,
+  white (`--surface`) inputs and "Find matches" button with `--staff-header` text. Focus rings are white on the dark box.
+  Inline errors are `--badge-danger-bg` / `--badge-danger-text` pills; "Too many tries" uses `--badge-warning-*`; the
+  "AI is resting" note uses `--badge-info-*`. Result cards: reason under "AI suggestion" on `--quote-bg` / `--quote-text`.
+- QR flyers on screen: a `--surface` sheet on `--placeholder`, tile borders `--text`, "left" amounts `--left-text`.
+  Printed (`[data-flyer-sheet]` in `globals.css`): black on white, progress bars outlined, nothing that needs a
+  background colour to be understood. The toolbar sets `@page` to A4 or Letter with 12 mm margins.
+
 ## Status badges (background / text)
 
 | Status | Background | Text | CSS variables |

@@ -19,11 +19,13 @@ import {
   PurchaseOffer,
   PurchaseView,
   remainingCents,
+  SponsorInvoiceView,
   TimelineEvent,
   type AllocationReason,
   type Category,
   type NeedStatus,
 } from "@needgrid/shared";
+import { qrPngDataUrl } from "./qrPng";
 
 // ---------- helpers ----------
 
@@ -1534,3 +1536,105 @@ for (const record of impactRecords) {
     }
   }
 }
+
+// ---------- sponsor invoices (C-10) ----------
+
+/**
+ * A sponsor invoice from the fixture story, with what it did to the ledger (A §8.6), so the invoices
+ * page isn't empty on first load:
+ * - `sent`: one sponsor hold per need, each the need's remaining when the invoice was sent (the mock
+ *   ledger lets them run for SPONSOR_HOLD_DAYS from then).
+ * - `paid`: the sponsor's payment is a donation (source "invoice") with one `sponsor` allocation per
+ *   need, already part of that need's funded amount and donor count.
+ */
+export type SponsorInvoiceRecord = {
+  orgId: string;
+  invoice: SponsorInvoiceView;
+  holds: ReadonlyArray<{ needId: string; amountCents: number }>;
+  payment: {
+    donationId: string;
+    impactToken: string;
+    paidAt: string;
+    items: ReadonlyArray<{ needId: string; amountCents: number }>;
+  } | null;
+};
+
+const DONATABLE: readonly NeedStatus[] = ["open", "topping_up"];
+
+function sandboxInvoice(fields: {
+  id: string;
+  paypalInvoiceId: string;
+  recipientEmail: string;
+  recipientName: string;
+  needIds: string[];
+  amountCents: number;
+  status: "sent" | "paid";
+  createdAt: string;
+}): SponsorInvoiceView {
+  const payerViewUrl = `https://www.sandbox.paypal.com/invoice/p/#${fields.paypalInvoiceId}`;
+  return SponsorInvoiceView.parse({ ...fields, payerViewUrl, qrImageDataUrl: qrPngDataUrl(payerViewUrl) });
+}
+
+/** Bayview Dental was sent an invoice two days ago for the markers and glue sticks: both are on hold for it. */
+function sentInvoice(): SponsorInvoiceRecord {
+  const createdAt = rel(-2, "10:00");
+  const holds = ["4c1f7a2e-9b3d-4e5f-8a6b-000000000305", "4c1f7a2e-9b3d-4e5f-8a6b-000000000311"].map((needId) => {
+    const { card } = fixtureNeed(needId);
+    if (card.orgId !== ORG_IDS.room12 || !DONATABLE.includes(card.status) || card.remainingCents === 0) {
+      throw new Error(`Mock sponsor invoice: "${card.title}" must be a Room 12 need still taking donations`);
+    }
+    if (card.updatedAt > createdAt) throw new Error(`Mock sponsor invoice: "${card.title}" changed after it was sent`);
+    return { needId, amountCents: card.remainingCents };
+  });
+  const invoice = sandboxInvoice({
+    id: "4c1f7a2e-9b3d-4e5f-8a6b-0000000005e1",
+    paypalInvoiceId: "INV2-B4YV-2DNT-8LQE-M3RS",
+    recipientEmail: "office@example.com",
+    recipientName: "Bayview Dental",
+    needIds: holds.map((h) => h.needId),
+    amountCents: holds.reduce((sum, h) => sum + h.amountCents, 0),
+    status: "sent",
+    createdAt,
+  });
+  return { orgId: ORG_IDS.room12, invoice, holds, payment: null };
+}
+
+/** Lakeside Rotary paid the last $59 of the coats for Room 12's youngest readers (since delivered). */
+function paidInvoice(): SponsorInvoiceRecord {
+  const needId = "4c1f7a2e-9b3d-4e5f-8a6b-000000000309";
+  const need = fixtureNeed(needId);
+  const amountCents = 5900;
+  // The payment is what finished the tile.
+  const paidAt = need.timeline.find((e) => e.type === "funded")?.at;
+  const createdAt = rel(-14, "10:30");
+  if (!paidAt || paidAt < createdAt || !FUNDED_STATUSES.includes(need.card.status)) {
+    throw new Error(`Mock sponsor invoice: "${need.card.title}" must have been funded after the invoice was sent`);
+  }
+  if (amountCents > need.card.fundedCents || need.card.donorCount < 1) {
+    throw new Error(`Mock sponsor invoice: "${need.card.title}" has less funding than the sponsor paid`);
+  }
+  const invoice = sandboxInvoice({
+    id: "4c1f7a2e-9b3d-4e5f-8a6b-0000000005e2",
+    paypalInvoiceId: "INV2-7KQ2-9DHL-3MZA-XC4P",
+    recipientEmail: "giving@example.org",
+    recipientName: "Lakeside Rotary",
+    needIds: [needId],
+    amountCents,
+    status: "paid",
+    createdAt,
+  });
+  return {
+    orgId: ORG_IDS.room12,
+    invoice,
+    holds: [],
+    payment: {
+      donationId: "seed-sponsor-lakeside-rotary",
+      impactToken: "sponsor-lakeside-rotary",
+      paidAt,
+      items: [{ needId, amountCents }],
+    },
+  };
+}
+
+/** Room 12's sponsor invoices, newest first. */
+export const sponsorInvoices: readonly SponsorInvoiceRecord[] = [sentInvoice(), paidInvoice()];

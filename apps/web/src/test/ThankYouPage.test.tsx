@@ -64,6 +64,22 @@ describe("Thank-you page /thanks/:token", () => {
     expect(screen.queryByText(/was left, so your gift was/)).not.toBeInTheDocument();
   });
 
+  it("is kept out of search engines while it's open (same private token as the impact page)", async () => {
+    const { unmount } = renderRoute(THANKS);
+    expect(document.head.querySelector('meta[name="robots"]')).toHaveAttribute("content", "noindex");
+    await screen.findByRole("heading", { level: 1, name: "Thank you!" });
+    expect(document.head.querySelectorAll('meta[name="robots"]')).toHaveLength(1);
+    expect(document.head.querySelector('meta[name="robots"]')).toHaveAttribute("content", "noindex");
+    unmount();
+    expect(document.head.querySelector('meta[name="robots"]')).toBeNull();
+  });
+
+  it("keeps the noindex on the not-found state too", async () => {
+    renderRoute("/thanks/not-a-real-token-123");
+    await screen.findByRole("heading", { name: "We couldn't find that gift" });
+    expect(document.head.querySelector('meta[name="robots"]')).toHaveAttribute("content", "noindex");
+  });
+
   it("explains a part that stays unassigned when the donor didn't agree to send it on", async () => {
     // Donor A (no consent) pays after their hold expired and donor B held $5 of the $14.
     vi.useFakeTimers({ toFake: ["Date"] });

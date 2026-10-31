@@ -18,7 +18,10 @@ const PAGE = "mx-auto w-full max-w-xl px-4";
 
 const isNotFound = (error: unknown) => error instanceof ApiClientError && error.code === "NOT_FOUND";
 
-/** `/thanks/:token`: right after a payment, what the gift paid for (brief §9.5, ThankYouPhone.dc.html). */
+/**
+ * `/thanks/:token`: right after a payment, what the gift paid for (brief §9.5, ThankYouPhone.dc.html).
+ * As private as the impact page (same token), so kept out of search engines too.
+ */
 export function ThankYouPage() {
   const { token = "" } = useParams();
   const impact = useImpact(token);
@@ -26,23 +29,32 @@ export function ThankYouPage() {
 
   useDocumentTitle(impact.data ? "Thank you · NeedGrid" : notFound ? "Gift not found · NeedGrid" : null);
 
-  if (impact.data) return <ThankYou token={token} impact={impact.data} />;
-  if (notFound) {
-    return (
-      <NotFoundPage
-        title="We couldn't find that gift"
-        message="Check that the link was copied in full. Your gift is safe either way."
-        linkLabel="Go to NeedGrid"
-      />
-    );
-  }
-  if (impact.isError) {
-    return (
-      <div className={`${PAGE} py-12`}>
-        <ErrorState onRetry={() => void impact.refetch()} />
-      </div>
-    );
-  }
+  const content = impact.data ? (
+    <ThankYou token={token} impact={impact.data} />
+  ) : notFound ? (
+    <NotFoundPage
+      title="We couldn't find that gift"
+      message="Check that the link was copied in full. Your gift is safe either way."
+      linkLabel="Go to NeedGrid"
+    />
+  ) : impact.isError ? (
+    <div className={`${PAGE} py-12`}>
+      <ErrorState onRetry={() => void impact.refetch()} />
+    </div>
+  ) : (
+    <ThankYouLoading />
+  );
+
+  return (
+    <>
+      {/* React puts this in <head> while the page is shown. */}
+      <meta name="robots" content="noindex" />
+      {content}
+    </>
+  );
+}
+
+function ThankYouLoading() {
   return (
     <div role="status" className={`${PAGE} flex flex-col gap-4 py-9`}>
       <span className="sr-only">Loading your gift…</span>

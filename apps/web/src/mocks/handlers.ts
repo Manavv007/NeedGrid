@@ -8,7 +8,7 @@
  * Mutation handlers arrive with their tasks (each in its own group below):
  *   C-3 donations (create order, capture) · C-4 intake + publish/patch · C-7 purchase plan/approve/ordered
  *   C-8 delivery/confirm · C-9 assistant chat (NDJSON), agent actions, invoices (assistant.ts) and B's
- *   dashboard reads (dashboard.ts) · P1 match.
+ *   dashboard reads (dashboard.ts) · C-10 Match me (match.ts, P1).
  */
 import {
   ApprovePurchaseRes,
@@ -41,6 +41,7 @@ import { assistantHandlers } from "./assistant";
 import { dashboardHandlers } from "./dashboard";
 import { mockImage } from "./fixtures";
 import { mockIntake } from "./intake";
+import { matchHandlers } from "./match";
 import { mockDb, type StaffNeedResult } from "./mockDb";
 import { apiError, isUuid, latency, notFound, readJson, refusal, staffOrg, unauthorized, validation } from "./respond";
 
@@ -308,5 +309,6 @@ export const handlers = [
   ...deliveryHandlers,
   ...assistantHandlers,
   ...dashboardHandlers,
+  ...matchHandlers,
   ...mockPhotoHandlers,
 ];
