@@ -39,7 +39,10 @@
  * mock proposes `create_invoice` with every amount computed here (`computed.planned` = each need's
  * remaining right now); approve runs only `proposed` actions of the caller's org, re-reads every
  * remaining amount and fails with "Amounts changed…" if one moved, otherwise creates the sponsor
- * invoice and a 14-day sponsor hold per need (tiles show it as held). Reject runs nothing.
+ * invoice and a 14-day sponsor hold per need (tiles show it as held). Reject runs nothing. The
+ * fixtures start with two Room 12 sponsor invoices (`fixtures.sponsorInvoices`) already in the
+ * ledger: the sent one's sponsor holds, and the paid one's `sponsor` allocation from a donation with
+ * source "invoice".
  */
 import {
   Cents,
@@ -106,8 +109,10 @@ type Reservation = {
 type Donation = {
   id: string;
   orgId: string;
-  /** Null for the fixture gifts (they were never a mock PayPal order). */
+  /** Null for the fixture gifts and sponsor payments (they were never a mock PayPal order). */
   orderId: string | null;
+  /** `invoice`: a sponsor paid an invoice (A's donations.source). */
+  source: "order" | "seed" | "invoice";
   impactToken: string;
   amountCents: number;
   /** PayPal gives the payer's name; mock checkouts have none, fixture gifts may. */
@@ -130,6 +135,17 @@ type Allocation = {
 /** A sponsor invoice's hold on one need (reservations.sponsor_invoice_id): donors can't double-fund it. */
 type SponsorHold = { invoiceId: string; needId: string; amountCents: number; expiresAtMs: number };
 
+/** Sponsor holds last 14 days (A §8.6), so the sponsor has time to pay. */
+export const SPONSOR_HOLD_DAYS = 14;
+const DAY_MS = 24 * 60 * 60_000;
+
+/** A fixture payment that becomes seed allocations: a donor's gift (impact record) or a sponsor's payment. */
+type FixturePayment = {
+  donationId: string;
+  donatedAt: string;
+  items: ReadonlyArray<{ needId: string; amountCents: number; reason: AllocationReason }>;
+};
+
 type State = {
   orgs: OrgPublic[];
   needs: Map<string, fixtures.MockNeed>;
@@ -147,18 +163,20 @@ type State = {
   sponsorInvoices: Array<{ orgId: string; invoice: SponsorInvoiceView }>;
   /** Chat request times per staff key (20 a minute, like the API's rate limit). */
   chatRequests: Map<string, number[]>;
+  /** Match me request times (10 a minute; the API counts per IP, the mock per tab). */
+  matchRequests: number[];
 };
 
 /**
  * Each fixture need's funded amount as `donorCount` seed donations (like B's seed script). The
- * fixture gifts (`impactRecords`) come first, at their donation time and in their own order; the
- * rest of the amount is split over the remaining donors at the time of the fixture's donation event,
- * a millisecond apart so "newest first" is well defined.
+ * fixture payments (donors' gifts from `impactRecords`, sponsors' paid invoices) come first, at their
+ * time and in their own order; the rest of the amount is split over the remaining donors at the time
+ * of the fixture's donation event, a millisecond apart so "newest first" is well defined.
  */
-function seedAllocations(needs: Iterable<fixtures.MockNeed>, records: readonly fixtures.ImpactRecord[]): Allocation[] {
+function seedAllocations(needs: Iterable<fixtures.MockNeed>, payments: readonly FixturePayment[]): Allocation[] {
   const out: Allocation[] = [];
   const recorded = new Map<string, { cents: number; donors: number }>();
-  for (const record of records) {
+  for (const record of payments) {
     const startMs = Date.parse(record.donatedAt);
     record.items.forEach(({ needId, amountCents, reason }, i) => {
       out.push({
@@ -180,7 +198,7 @@ function seedAllocations(needs: Iterable<fixtures.MockNeed>, records: readonly f
     const restCents = fundedCents - known.cents;
     const restDonors = donorCount - known.donors;
     if (restCents < 0 || restDonors < 0 || (restCents === 0) !== (restDonors === 0)) {
-      throw new Error(`Mock fixture "${title}": the fixture gifts don't fit its funded amount and donor count`);
+      throw new Error(`Mock fixture "${title}": the fixture payments don't fit its funded amount and donor count`);
     }
     if (restCents === 0) continue;
     const startMs = Date.parse(need.timeline.find((e) => e.type === "donation")?.at ?? createdAt);
@@ -212,6 +230,7 @@ function fixtureDonations(
       id: record.donationId,
       orgId,
       orderId: null,
+      source: "seed",
       impactToken: record.token,
       amountCents: record.items.reduce((sum, item) => sum + item.amountCents, 0),
       donorFirstName: record.donorFirstName,
@@ -220,6 +239,50 @@ function fixtureDonations(
   });
 }
 
+/** Paid fixture invoices: the sponsor's payment, allocated with reason `sponsor`. */
+const sponsorPayments = (records: readonly fixtures.SponsorInvoiceRecord[]): FixturePayment[] =>
+  records.flatMap(({ payment }) =>
+    payment
+      ? [
+          {
+            donationId: payment.donationId,
+            donatedAt: payment.paidAt,
+            items: payment.items.map((item) => ({ ...item, reason: "sponsor" as const })),
+          },
+        ]
+      : [],
+  );
+
+/** The sponsors' payments as donations (A's `source: "invoice"`). */
+const sponsorDonations = (records: readonly fixtures.SponsorInvoiceRecord[]): Donation[] =>
+  records.flatMap(({ orgId, payment }) =>
+    payment
+      ? [
+          {
+            id: payment.donationId,
+            orgId,
+            orderId: null,
+            source: "invoice" as const,
+            impactToken: payment.impactToken,
+            amountCents: payment.items.reduce((sum, item) => sum + item.amountCents, 0),
+            donorFirstName: null,
+            createdAt: payment.paidAt,
+          },
+        ]
+      : [],
+  );
+
+/** Sent fixture invoices hold each need for SPONSOR_HOLD_DAYS from when they were sent. */
+const sponsorFixtureHolds = (records: readonly fixtures.SponsorInvoiceRecord[]): SponsorHold[] =>
+  records.flatMap(({ invoice, holds }) =>
+    holds.map(({ needId, amountCents }) => ({
+      invoiceId: invoice.id,
+      needId,
+      amountCents,
+      expiresAtMs: Date.parse(invoice.createdAt) + SPONSOR_HOLD_DAYS * DAY_MS,
+    })),
+  );
+
 function freshState(): State {
   const needs = new Map(fixtures.needs.map((n) => [n.card.id, structuredClone(n)]));
   return {
@@ -227,14 +290,21 @@ function freshState(): State {
     needs,
     fixtureHeld: new Map(fixtures.needs.map((n) => [n.card.id, n.card.heldCents])),
     reservations: new Map(),
-    sponsorHolds: [],
-    donations: fixtureDonations(fixtures.impactRecords, needs),
-    allocations: seedAllocations(needs.values(), fixtures.impactRecords),
+    sponsorHolds: sponsorFixtureHolds(fixtures.sponsorInvoices),
+    donations: [...fixtureDonations(fixtures.impactRecords, needs), ...sponsorDonations(fixtures.sponsorInvoices)],
+    allocations: seedAllocations(needs.values(), [
+      ...fixtures.impactRecords,
+      ...sponsorPayments(fixtures.sponsorInvoices),
+    ]),
     fundedAt: new Map(),
     scenarios: new Set(),
     agentActions: [],
-    sponsorInvoices: [],
+    sponsorInvoices: fixtures.sponsorInvoices.map(({ orgId, invoice }) => ({
+      orgId,
+      invoice: structuredClone(invoice),
+    })),
     chatRequests: new Map(),
+    matchRequests: [],
   };
 }
 
@@ -687,10 +757,10 @@ export type AgentActionResult = { kind: "ok"; action: AgentAction } | { kind: "n
 
 /** A's exact words (§8.6) when an amount moved between proposal and approval. */
 export const AMOUNTS_CHANGED_ERROR = "Amounts changed since this was proposed; ask the assistant again.";
-/** Sponsor holds last 14 days (A §8.6), so the sponsor has time to pay. */
-export const SPONSOR_HOLD_DAYS = 14;
 /** The assistant chat allows this many requests a minute per staff key (B §9.6). */
 export const CHAT_REQUESTS_PER_MINUTE = 20;
+/** Match me allows this many requests a minute (B §9.5). */
+export const MATCH_REQUESTS_PER_MINUTE = 10;
 /** What `?mock=amountsChanged` gives the first planned need just before an approval runs. */
 const SIMULATED_GIFT_CENTS = 500;
 
@@ -705,7 +775,7 @@ type InvoicePlan = z.infer<typeof InvoicePlan>;
 export type LedgerSnapshot = {
   orgs: OrgPublic[];
   needs: Array<{ card: NeedCard; timeline: TimelineEvent[]; delivery: DeliveryPublic | null }>;
-  donations: Array<{ id: string; orgId: string; amountCents: number; source: "order" | "seed"; at: string }>;
+  donations: Array<{ id: string; orgId: string; amountCents: number; source: Donation["source"]; at: string }>;
   allocations: Array<{
     id: string;
     donationId: string;
@@ -946,6 +1016,7 @@ export const mockDb = {
       id: crypto.randomUUID(),
       orgId: need.card.orgId,
       orderId,
+      source: "order",
       impactToken: newImpactToken(),
       amountCents: reservation.amountCents,
       donorFirstName: null,
@@ -1447,6 +1518,27 @@ export const mockDb = {
     return allowed;
   },
 
+  // ---------- match me (C-10) ----------
+
+  /** One Match me request, if it's within the per-minute limit (B §9.5: public, 10 a minute). */
+  takeMatchRequest(nowMs: number = Date.now()): boolean {
+    const recent = state.matchRequests.filter((t) => t > nowMs - 60_000);
+    const allowed = recent.length < MATCH_REQUESTS_PER_MINUTE;
+    if (allowed) recent.push(nowMs);
+    state.matchRequests = recent;
+    return allowed;
+  },
+
+  /** What Match me may suggest (B §9.5): every org's open / topping-up needs with something left, and their org. */
+  matchCandidates(): Array<{ need: NeedCard; orgName: string }> {
+    return [...state.needs.values()]
+      .filter((n) => isDonatable(n.card.status) && roomFor(n) > 0)
+      .flatMap((n) => {
+        const org = findOrg((o) => o.id === n.card.orgId);
+        return org ? [{ need: cardOf(n), orgName: org.name }] : [];
+      });
+  },
+
   /**
    * Every need (as the API would show it now), donation and allocation, for B's datasets and the
    * reconcile report. Seed donations (the fixture history) exist only as allocations: each becomes
@@ -1471,7 +1563,7 @@ export const mockDb = {
         id: d.id,
         orgId: d.orgId,
         amountCents: d.amountCents,
-        source: d.orderId === null ? ("seed" as const) : ("order" as const),
+        source: d.source,
         at: d.createdAt,
       })),
       ...[...seeds].map(([id, s]) => ({

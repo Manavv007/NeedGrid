@@ -17,13 +17,17 @@ export const TOOL_META: Readonly<Record<MoneyTool, { icon: LucideIcon; label: st
 
 export const isInvoiceTool = (tool: MoneyTool) => tool === "create_invoice" || tool === "send_invoice";
 
-/** Whether approving sends something out: a send_invoice, or a create_invoice whose args say `send: true`. */
-export const sendsOnApproval = (action: AgentAction) =>
-  action.tool === "send_invoice" || (action.tool === "create_invoice" && action.args.send === true);
+/**
+ * A create_invoice sends unless its args say exactly `send: false`: `CreateInvoiceArgs.send` defaults
+ * to true, so args without the key still send on approval.
+ */
+const createSends = (action: AgentAction) => action.tool === "create_invoice" && action.args.send !== false;
 
-/** "Approve and send" for an invoice that is sent on approval (args.send === true), else "Approve". */
-export const approveLabel = (action: AgentAction) =>
-  action.tool === "create_invoice" && action.args.send === true ? "Approve and send" : "Approve";
+/** Whether approving sends something out: a send_invoice, or a create_invoice that isn't `send: false`. */
+export const sendsOnApproval = (action: AgentAction) => action.tool === "send_invoice" || createSends(action);
+
+/** "Approve and send" for a create_invoice that is sent on approval (`send` missing or true), else "Approve". */
+export const approveLabel = (action: AgentAction) => (createSends(action) ? "Approve and send" : "Approve");
 
 /** The executed invoice in `result`, when it is one (`SponsorInvoiceView`, nothing hand-checked). */
 export function invoiceFromResult(action: AgentAction): SponsorInvoiceView | null {

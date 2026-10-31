@@ -13,6 +13,16 @@ export function needPath(slug: string, needId: string, opts: { donate?: boolean 
   return `${orgPath(slug)}/n/${encodeURIComponent(needId)}${opts.donate ? "?donate=1" : ""}`;
 }
 
+/** Printable QR flyer for one need. */
+export function needFlyerPath(slug: string, needId: string): string {
+  return `${needPath(slug, needId)}/flyer`;
+}
+
+/** The full address of an in-app path, for QR codes that a phone opens. */
+export function absoluteUrl(path: string): string {
+  return new URL(path, window.location.origin).href;
+}
+
 /** Thank-you page right after a payment. */
 export function thanksPath(impactToken: string): string {
   return `/thanks/${encodeURIComponent(impactToken)}`;

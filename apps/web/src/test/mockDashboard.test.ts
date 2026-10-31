@@ -67,8 +67,11 @@ describe("mock dashboard datasets (B's GET /api/dashboard/datasets/:name)", () =
     for (const row of donations.rows) {
       expect(row.donationKey).toMatch(/^[0-9a-f]{16}$/);
       expect(row.month).toBe(row.donatedAt.slice(0, 7));
-      expect(row.source).toBe("seed");
     }
+    // The fixture history, plus one sponsor's paid invoice (Room 12, $59).
+    expect(donations.rows.filter((r) => r.source !== "seed").map((r) => [r.source, r.amountUsd])).toEqual([
+      ["invoice", 59],
+    ]);
     const keys = new Set(donations.rows.map((r) => r.donationKey));
     expect(keys.size).toBe(donations.rows.length);
     for (const row of allocations.rows) expect(keys.has(row.donationKey)).toBe(true);

@@ -16,6 +16,8 @@
  * - `assistantError`: the next assistant reply sends a few words, then `{ type: "error" }` and `done`.
  * - `assistantBadLine`: the next assistant reply contains a line that isn't valid JSON and one that
  *   isn't a known event (the chat shows a generic error instead of the raw text).
+ * - `matchResting`:   the next Match me request finds every AI model out of quota → `503 UPSTREAM`
+ *   "The AI is resting, try again tomorrow" (B's free-tier guard, NOTES.md §15).
  *
  * One more switch isn't used up: `liveDemo` starts a pretend donor in this tab (liveDemo.ts), so
  * live updates can be watched without a second browser.
@@ -32,6 +34,7 @@ const MOCK_SCENARIOS = [
   "amountsChanged",
   "assistantError",
   "assistantBadLine",
+  "matchResting",
 ] as const;
 export type MockScenario = (typeof MOCK_SCENARIOS)[number];
 

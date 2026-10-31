@@ -14,12 +14,14 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BAD_LINE_MESSAGE, readNdjson } from "@/lib/ndjson";
 import { mockReconcileReport } from "@/mocks/assistant";
-import { ORG_IDS } from "@/mocks/fixtures";
+import { ORG_IDS, sponsorInvoices } from "@/mocks/fixtures";
 import { AMOUNTS_CHANGED_ERROR, CHAT_REQUESTS_PER_MINUTE, mockDb, SPONSOR_HOLD_DAYS } from "@/mocks/mockDb";
 
 const API = "http://api.test";
 const ROOM12 = ORG_IDS.room12;
 const ROOM12_KEY = "room12-demo-2026";
+/** Room 12 starts with a sent and a paid sponsor invoice (fixtures, C-10). */
+const FIXTURE_INVOICES = sponsorInvoices.filter((r) => r.orgId === ROOM12).map((r) => r.invoice);
 const WINTER = {
   size67: "4c1f7a2e-9b3d-4e5f-8a6b-000000000301", // $30 of $152 raised
   size8: "4c1f7a2e-9b3d-4e5f-8a6b-000000000302", // nothing yet
@@ -155,7 +157,7 @@ describe("mock approve and reject (A §8.6, §8.7)", () => {
       });
     });
     expect(new Set(updates.map((c) => c.id))).toEqual(new Set(WINTER_IDS));
-    expect(mockDb.listSponsorInvoices(ROOM12)).toEqual([invoice]);
+    expect(mockDb.listSponsorInvoices(ROOM12)).toEqual([invoice, ...FIXTURE_INVOICES]);
     expect(mockDb.listSponsorInvoices(ORG_IDS.harbor)).toEqual([]);
 
     // Donors can't double-fund a held tile.
@@ -177,7 +179,7 @@ describe("mock approve and reject (A §8.6, §8.7)", () => {
       action: { status: "failed", error: AMOUNTS_CHANGED_ERROR, result: null },
     });
     expect(WINTER_IDS.map((id) => card(id).heldCents)).toEqual(before);
-    expect(mockDb.listSponsorInvoices(ROOM12)).toEqual([]);
+    expect(mockDb.listSponsorInvoices(ROOM12)).toEqual(FIXTURE_INVOICES);
   });
 
   it("?mock=amountsChanged makes the next approval fail the same way", () => {
@@ -201,7 +203,7 @@ describe("mock approve and reject (A §8.6, §8.7)", () => {
     });
     expect(updates).toEqual([]);
     expect(mockDb.listStaffNeeds(ROOM12)).toEqual(before);
-    expect(mockDb.listSponsorInvoices(ROOM12)).toEqual([]);
+    expect(mockDb.listSponsorInvoices(ROOM12)).toEqual(FIXTURE_INVOICES);
   });
 
   it("only a proposed action can be decided (409), and only by its own charity (404)", () => {
@@ -214,7 +216,7 @@ describe("mock approve and reject (A §8.6, §8.7)", () => {
       code: "INVALID_STATE",
     });
     expect(mockDb.rejectAgentAction(ROOM12, action.id)).toMatchObject({ kind: "refused", status: 409 });
-    expect(mockDb.listSponsorInvoices(ROOM12)).toHaveLength(1);
+    expect(mockDb.listSponsorInvoices(ROOM12)).toHaveLength(FIXTURE_INVOICES.length + 1);
   });
 });
 
@@ -235,7 +237,7 @@ describe("mock agent action handlers", () => {
     expect(ApiError.parse(await again.json()).error.code).toBe("INVALID_STATE");
 
     const invoices = SponsorInvoiceListRes.parse(await (await call("GET", paths.staff.invoices)).json());
-    expect(invoices.invoices).toHaveLength(1);
+    expect(invoices.invoices).toHaveLength(FIXTURE_INVOICES.length + 1);
     expect((await call("GET", `${paths.staff.actions}?status=nope`)).status).toBe(400);
     expect((await call("GET", paths.staff.actions, undefined, null)).status).toBe(401);
     expect((await call("POST", paths.staff.approveAction("not-a-uuid"), {})).status).toBe(404);

@@ -3,12 +3,21 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
+import { features } from "@/lib/features";
 import { server } from "@/mocks/node";
 import { renderRoute } from "./render";
 
 const API = "http://api.test";
 
 describe("Landing page", () => {
+  it("hides the Match me box while its flag is off (tests run with mocks off)", async () => {
+    expect(features.matchMe).toBe(false);
+    renderRoute("/");
+    await screen.findByRole("link", { name: /Harbor Food Bank/ });
+    expect(screen.queryByRole("region", { name: "Not sure where to start?" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Find matches" })).not.toBeInTheDocument();
+  });
+
   it("shows the hook line and how it works", async () => {
     renderRoute("/");
     expect(

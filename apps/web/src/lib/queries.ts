@@ -11,6 +11,8 @@ import {
   IntakeReq,
   IntakeRes,
   MarkOrderedReq,
+  MatchReq,
+  MatchRes,
   NeedDetailRes,
   NeedRes,
   OrgListRes,
@@ -491,11 +493,36 @@ export function useDecideAction(actionId: string) {
   });
 }
 
-/** `GET /api/staff/invoices`: the charity's sponsor invoices. */
+/** `GET /api/staff/invoices`: the charity's sponsor invoices. Refetched whenever staff come back to the tab. */
 export function useInvoices({ enabled }: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: queryKeys.invoices(),
     queryFn: ({ signal }) => apiGet(paths.staff.invoices, SponsorInvoiceListRes, { staff: true, signal }),
+    refetchOnWindowFocus: "always",
     enabled,
+  });
+}
+
+/**
+ * The charity's needs if this tab already loaded them (the console's full list), else null. Read
+ * from the cache only: never fetched here, so a page can name needs it happens to know about.
+ */
+export function useKnownStaffNeeds(): readonly NeedCard[] | null {
+  const { data } = useQuery<StaffNeedListRes>({ queryKey: queryKeys.staffNeeds(), queryFn: skipToken });
+  return data?.needs ?? null;
+}
+
+// ---------- match me (P1, B) ----------
+
+/**
+ * `POST /api/match` (public, 10 requests a minute): what the donor cares about and a budget in, up
+ * to 3 needs with B's one-line reason out. The body is exactly `MatchReq`. Pass `signal` to cancel.
+ * Nothing is kept once the box stops using it (`gcTime: 0`).
+ */
+export function useMatch() {
+  return useMutation({
+    mutationFn: ({ req, signal }: { req: MatchReq; signal?: AbortSignal }) =>
+      apiPost(paths.match, MatchReq.parse(req), MatchRes, { signal }),
+    gcTime: 0,
   });
 }

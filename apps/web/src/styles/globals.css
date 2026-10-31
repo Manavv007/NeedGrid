@@ -265,4 +265,44 @@ html[data-display="wall"] {
     background: var(--surface) !important;
     color: var(--text) !important;
   }
+
+  /*
+   * Printed flyers (C-10): the sheet fills one page (the toolbar sets `@page` to A4 or Letter with
+   * 12 mm margins), black on white. Nothing depends on a background colour: what's left is always
+   * in words, and progress bars get an outline instead of their fill.
+   */
+  html:has([data-flyer-sheet]),
+  body:has([data-flyer-sheet]) {
+    background: transparent !important;
+  }
+
+  [data-flyer-sheet] {
+    width: 100% !important;
+    aspect-ratio: auto !important;
+    overflow: hidden;
+    break-inside: avoid;
+    color: black !important;
+    background: transparent !important;
+  }
+
+  [data-flyer-sheet="letter"] {
+    height: calc(11in - 24mm);
+  }
+
+  [data-flyer-sheet="a4"] {
+    height: calc(297mm - 24mm);
+  }
+
+  [data-flyer-sheet] * {
+    color: inherit !important;
+    border-color: black !important;
+  }
+
+  [data-flyer-sheet] [role="progressbar"] {
+    border: 1px solid black;
+  }
+
+  [data-flyer-sheet] svg[role="img"] path {
+    fill: black;
+  }
 }
