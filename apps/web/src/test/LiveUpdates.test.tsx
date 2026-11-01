@@ -5,6 +5,7 @@ import { http } from "msw";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Toaster } from "@/components/ui/sonner";
+import { DEMO_NEEDS } from "@/mocks/fixtures";
 import { server } from "@/mocks/node";
 import { routes } from "@/router";
 import { fixtureCard, installFakeEventSource, onlyStream, sendNeedUpdate } from "./fakeEventSource";
@@ -13,7 +14,7 @@ import { createTestQueryClient, renderRoute } from "./render";
 const API = "http://api.test";
 const SLUG = "harbor-food-bank";
 const HARBOR = `/o/${SLUG}`;
-const DIAPERS = "4c1f7a2e-9b3d-4e5f-8a6b-000000000101"; // $70 of $84, 6 donors
+const DIAPERS = DEMO_NEEDS.fourteenLeft; // $70 of $84, 6 donors
 /** MSW pattern for GET /api/orgs/:slug (paths.org would URL-encode the ":"). */
 const ORG_ROUTE = `${API}/api/orgs/:slug`;
 
@@ -53,16 +54,16 @@ describe("live updates on the pages", () => {
 
   it("tile wall: a tile funded elsewhere moves to Funded, the counts follow, and it's announced", async () => {
     await renderHarbor();
-    expect(screen.getByRole("tab", { name: /Still needed/ })).toHaveTextContent("Still needed · 8");
+    expect(screen.getByRole("tab", { name: /Still needed/ })).toHaveTextContent("Still needed · 6");
     expect(screen.getByRole("article", { name: "Diapers, size 4" })).toBeInTheDocument();
 
     sendNeedUpdate(fundedDiapers());
 
     // TanStack Query hands the patched data to the page on the next tick.
     await vi.waitFor(() =>
-      expect(screen.getByRole("tab", { name: /Still needed/ })).toHaveTextContent("Still needed · 7"),
+      expect(screen.getByRole("tab", { name: /Still needed/ })).toHaveTextContent("Still needed · 5"),
     );
-    expect(screen.getByRole("tab", { name: /Funded/ })).toHaveTextContent("Funded · 4");
+    expect(screen.getByRole("tab", { name: /Funded/ })).toHaveTextContent("Funded · 6");
     expect(screen.queryByRole("article", { name: "Diapers, size 4" })).not.toBeInTheDocument();
     expect(screen.getByText("Diapers, size 4 is fully funded")).toHaveAttribute("aria-live", "polite");
 

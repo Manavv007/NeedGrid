@@ -1,16 +1,15 @@
 import { act, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { qrPath } from "@/components/QrCode";
+import { DEMO_NEEDS } from "@/mocks/fixtures";
 import { fixtureCard, installFakeEventSource, onlyStream, sendNeedUpdate } from "./fakeEventSource";
 import { renderRoute } from "./render";
 
 const SLUG = "harbor-food-bank";
-const DIAPERS = "4c1f7a2e-9b3d-4e5f-8a6b-000000000101";
+const DIAPERS = DEMO_NEEDS.fourteenLeft;
 
 const STILL_NEEDED = [
   "Diapers, size 4",
-  "Infant formula, 12.4 oz",
-  "Baby wipes, unscented",
   "Canned chicken, 12.5 oz",
   "Peanut butter, 40 oz",
   "Canned tuna, 5 oz",
@@ -43,14 +42,14 @@ describe("Big-screen mode /o/:slug?display=1", () => {
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Filter by category" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
-    expect(screen.getByText("Raised so far").nextElementSibling).toHaveTextContent("$532");
+    expect(screen.getByText("Raised so far").nextElementSibling).toHaveTextContent("$602");
     expect(screen.getByText("Scan to fund an item")).toBeInTheDocument();
 
     // Still needed (most urgent first), then the recently funded ones.
     const titles = tileTitles();
     expect(titles.slice(0, STILL_NEEDED.length)).toEqual(STILL_NEEDED);
     expect(new Set(titles.slice(STILL_NEEDED.length))).toEqual(
-      new Set(["Kids' toothbrushes", "Women's socks", "Laundry detergent"]),
+      new Set(["Infant formula", "Kids' toothbrushes", "Laundry detergent", "Baby wipes", "Women's socks"]),
     );
     expect(screen.getAllByRole("progressbar")).toHaveLength(titles.length);
 

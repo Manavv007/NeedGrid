@@ -5,15 +5,15 @@ import {
   NeedDetailRes,
   OrgListRes,
   OrgPageRes,
+  planPurchaseMoney,
   PurchaseOffer,
   StaffNeedDetailRes,
 } from "@needgrid/shared";
 import { describe, expect, it } from "vitest";
-import { DEMO_IMPACT_TOKEN, freshOffers, impactRecords, needs, orgs } from "@/mocks/fixtures";
+import { DEMO_IMPACT_TOKEN, DEMO_NEEDS, freshOffers, impactRecords, needs, orgs } from "@/mocks/fixtures";
 import { mockDb } from "@/mocks/mockDb";
 
-const harborDiapers = "4c1f7a2e-9b3d-4e5f-8a6b-000000000101";
-const laundry = "4c1f7a2e-9b3d-4e5f-8a6b-000000000110";
+const need = (id: string) => needs.find((n) => n.card.id === id);
 
 describe("mock fixtures", () => {
   it("has the three demo orgs", () => {
@@ -36,17 +36,57 @@ describe("mock fixtures", () => {
     }
   });
 
-  it("has Harbor's Diapers, size 4 with exactly $14 left of $84", () => {
-    const diapers = needs.find((n) => n.card.id === harborDiapers)?.card;
-    expect(diapers).toMatchObject({ title: "Diapers, size 4", targetCents: 8400, remainingCents: 1400 });
+  it("gives Harbor's tile wall a tile in every visible state and needs in at least 4 categories", () => {
+    const page = OrgPageRes.parse(mockDb.getOrgPage("harbor-food-bank"));
+    const statuses = new Set(page.needs.map((n) => n.status));
+    for (const status of ["open", "topping_up", "funded", "ordered", "delivered"] as const) {
+      expect(statuses).toContain(status);
+    }
+    expect(page.needs.some((n) => n.status === "open" && n.heldCents > 0)).toBe(true);
+    expect(new Set(page.needs.map((n) => n.category)).size).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe("the demo scenes mirror B's seed heroes", () => {
+  it("donation: Harbor's Diapers, size 4 is open with exactly $14 left of $84", () => {
+    expect(need(DEMO_NEEDS.fourteenLeft)?.card).toMatchObject({
+      orgSlug: "harbor-food-bank",
+      title: "Diapers, size 4",
+      status: "open",
+      targetCents: 8400,
+      remainingCents: 1400,
+    });
   });
 
-  it("has a funded need with a cheaper fresh price, an ordered need and a delivered need with a photo", () => {
-    const funded = needs.find((n) => n.card.id === laundry);
-    const offer = freshOffers[laundry];
-    expect(funded?.card.status).toBe("funded");
-    expect(offer && PurchaseOffer.parse(offer).unitPriceCents).toBeLessThan(funded?.card.product?.unitPriceCents ?? 0);
-    expect(needs.some((n) => n.card.status === "ordered" && n.purchases[0]?.orderRef)).toBe(true);
+  it("purchase plan: Harbor's Infant formula is funded at a price 15% above today's, so the plan has a surplus", () => {
+    const formula = need(DEMO_NEEDS.priceDrop)?.card;
+    const today = freshOffers[DEMO_NEEDS.priceDrop];
+    expect(formula).toMatchObject({ orgSlug: "harbor-food-bank", title: "Infant formula", status: "funded" });
+    const posted = formula?.product?.unitPriceCents ?? 0;
+    const todayCents = today ? PurchaseOffer.parse(today).unitPriceCents : 0;
+    // plan.ts: Math.ceil((price × 1.15) / 10) × 10, the cached Channel3 price marked up by 15%.
+    expect(posted).toBe(Math.ceil((todayCents * 115) / 1000) * 10);
+    const newTarget = computeTargetCents(todayCents, formula?.quantity ?? 1);
+    expect(planPurchaseMoney(formula?.fundedCents ?? 0, newTarget)).toEqual({ kind: "surplus", cents: 1200 });
+  });
+
+  it("delivery: Harbor's Baby wipes is ordered, with an order number, and part of the demo impact gift", () => {
+    const wipes = need(DEMO_NEEDS.ordered);
+    expect(wipes?.card).toMatchObject({ orgSlug: "harbor-food-bank", title: "Baby wipes", status: "ordered" });
+    expect(wipes?.purchases[0]).toMatchObject({ status: "ordered", orderRef: expect.any(String) });
+    const sam = impactRecords.find((r) => r.token === DEMO_IMPACT_TOKEN);
+    expect(sam?.items.map((i) => i.needId)).toContain(DEMO_NEEDS.ordered);
+  });
+
+  it("sponsor invoice: Room 12 has four open winter-coat needs, sizes 6 to 12, still to raise", () => {
+    const coats = DEMO_NEEDS.coats.map((id) => need(id)?.card);
+    expect(coats.map((c) => [c?.orgSlug, c?.title, c?.status])).toEqual(
+      [6, 8, 10, 12].map((size) => ["room-12-readers", `Winter coats, kids' size ${size}`, "open"]),
+    );
+    for (const coat of coats) expect(coat?.remainingCents).toBeGreaterThan(0);
+  });
+
+  it("also has a delivered need with a photo", () => {
     expect(needs.some((n) => n.card.status === "delivered" && n.delivery?.photoUrl)).toBe(true);
   });
 
@@ -61,16 +101,6 @@ describe("mock fixtures", () => {
     ]);
     expect(mockDb.moneyProblems()).toEqual([]);
   });
-
-  it("gives Harbor's tile wall a tile in every visible state and needs in at least 4 categories", () => {
-    const page = OrgPageRes.parse(mockDb.getOrgPage("harbor-food-bank"));
-    const statuses = new Set(page.needs.map((n) => n.status));
-    for (const status of ["open", "topping_up", "funded", "ordered", "delivered"] as const) {
-      expect(statuses).toContain(status);
-    }
-    expect(page.needs.some((n) => n.status === "open" && n.heldCents > 0)).toBe(true);
-    expect(new Set(page.needs.map((n) => n.category)).size).toBeGreaterThanOrEqual(4);
-  });
 });
 
 describe("mock dates follow the clock", () => {
@@ -81,7 +111,7 @@ describe("mock dates follow the clock", () => {
   const ms = (iso: string) => Date.parse(iso);
 
   it("keeps Diapers, size 4 needed within the week", () => {
-    const deadline = needs.find((n) => n.card.id === harborDiapers)?.card.deadlineAt;
+    const deadline = need(DEMO_NEEDS.fourteenLeft)?.card.deadlineAt;
     expect(deadline).toBeTruthy();
     const ahead = ms(deadline ?? "") - now;
     expect(ahead).toBeGreaterThan(0);

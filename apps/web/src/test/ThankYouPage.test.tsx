@@ -2,12 +2,12 @@ import { HOLD_MINUTES } from "@needgrid/shared";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEMO_IMPACT_TOKEN } from "@/mocks/fixtures";
+import { DEMO_IMPACT_TOKEN, DEMO_NEEDS } from "@/mocks/fixtures";
 import { mockDb } from "@/mocks/mockDb";
 import { renderRoute } from "./render";
 
 const THANKS = `/thanks/${DEMO_IMPACT_TOKEN}`;
-const DIAPERS = "4c1f7a2e-9b3d-4e5f-8a6b-000000000101";
+const DIAPERS = DEMO_NEEDS.fourteenLeft;
 
 afterEach(() => {
   vi.useRealTimers();
@@ -24,7 +24,7 @@ describe("Thank-you page /thanks/:token", () => {
     const rows = within(screen.getByRole("region", { name: "Where your money went" })).getAllByRole("listitem");
     expect(rows.map((row) => row.textContent)).toEqual([
       "Diapers, size 3Harbor Food Bank · fully funded now$14.00",
-      "Women's socksHarbor Food Bank · sent to the next most urgent need$25.00",
+      "Baby wipesHarbor Food Bank · sent to the next most urgent need$25.00",
     ]);
     expect(
       screen.getByText(
@@ -44,18 +44,56 @@ describe("Thank-you page /thanks/:token", () => {
     expect(screen.getByRole("link", { name: "Fund another item" })).toHaveAttribute("href", "/o/harbor-food-bank");
   });
 
-  it("copies the impact link", async () => {
+  it("puts the save-link box right under the headline: the full link, Copy link, and no Share without the share sheet", async () => {
     const user = userEvent.setup();
     renderRoute(THANKS);
-    await screen.findByRole("heading", { level: 1, name: "Thank you!" });
+    const heading = await screen.findByRole("heading", { level: 1, name: "Thank you!" });
     const url = `${window.location.origin}/impact/${DEMO_IMPACT_TOKEN}`;
-    const box = screen.getByRole("region", { name: "Save your impact link" });
-    expect(within(box).getByRole("textbox", { name: "Your impact link" })).toHaveValue(url);
-    expect(box).toHaveTextContent("It's the only way back to see your items arrive. No account, no emails.");
+    const box = screen.getByRole("region", { name: "Save this link to see your item arrive" });
+    // Before what the gift paid for, so it's seen without scrolling.
+    const split = screen.getByRole("region", { name: "Where your money went" });
+    expect(heading.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(box.compareDocumentPosition(split) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByRole("region")[0]).toBe(box);
 
-    await user.click(within(box).getByRole("button", { name: "Copy" }));
+    expect(within(box).getByRole("textbox", { name: "Your impact link" })).toHaveValue(url);
+    expect(within(box).getByRole("textbox", { name: "Your impact link" })).toHaveAttribute("readonly");
+    expect(box).toHaveTextContent("There's no account and no email, so this link is the only way back to your gift.");
+    // jsdom has no navigator.share, like most desktop browsers.
+    expect(within(box).queryByRole("button", { name: "Share" })).not.toBeInTheDocument();
+
+    await user.click(within(box).getByRole("button", { name: "Copy link" }));
     await expect(navigator.clipboard.readText()).resolves.toBe(url);
     expect(await screen.findByText("Impact link copied")).toBeInTheDocument();
+  });
+
+  it("offers Share where the browser has a share sheet, and closing the sheet is not an error", async () => {
+    const share = vi.fn<(data: ShareData) => Promise<void>>().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "share", { configurable: true, value: share });
+    try {
+      const user = userEvent.setup();
+      renderRoute(THANKS);
+      await screen.findByRole("heading", { level: 1, name: "Thank you!" });
+      const box = screen.getByRole("region", { name: "Save this link to see your item arrive" });
+
+      await user.click(within(box).getByRole("button", { name: "Share" }));
+      expect(share).toHaveBeenCalledTimes(1);
+      expect(share).toHaveBeenCalledWith({
+        title: "My NeedGrid impact link",
+        url: `${window.location.origin}/impact/${DEMO_IMPACT_TOKEN}`,
+      });
+
+      share.mockRejectedValueOnce(new DOMException("Share canceled", "AbortError"));
+      await user.click(within(box).getByRole("button", { name: "Share" }));
+      expect(share).toHaveBeenCalledTimes(2);
+      expect(screen.queryByText("We couldn't open sharing")).not.toBeInTheDocument();
+
+      share.mockRejectedValueOnce(new DOMException("Not allowed", "NotAllowedError"));
+      await user.click(within(box).getByRole("button", { name: "Share" }));
+      expect(await screen.findByText("We couldn't open sharing")).toBeInTheDocument();
+    } finally {
+      Reflect.deleteProperty(navigator, "share");
+    }
   });
 
   it("shows no clamped notice without router state", async () => {

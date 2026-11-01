@@ -40,11 +40,11 @@ describe("Org flyer /o/:slug/flyer", () => {
     const items = within(screen.getByRole("list", { name: "Items" })).getAllByRole("listitem");
     expect(items.map((li) => li.textContent)).toEqual([
       "Diapers, size 4$14 left",
-      "Infant formula, 12.4 oz$56 left",
-      "Baby wipes, unscented$19 left",
       "Canned chicken, 12.5 oz$26 left",
       "Peanut butter, 40 oz$59 left",
       "Canned tuna, 5 oz$5 more needed",
+      "Toothpaste, 4 oz$42 left",
+      "Rolled oats, 42 oz$57 left",
     ]);
     expect(within(items[0] ?? document.body).getByRole("img", { name: /Pampers/ })).toBeInTheDocument();
 

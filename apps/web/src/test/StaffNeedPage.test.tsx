@@ -3,7 +3,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ORG_IDS } from "@/mocks/fixtures";
+import { DEMO_NEEDS, ORG_IDS } from "@/mocks/fixtures";
 import { mockDb } from "@/mocks/mockDb";
 import { server } from "@/mocks/node";
 import { fixtureCard, installFakeEventSource, onlyStream, sendNeedUpdate } from "./fakeEventSource";
@@ -12,10 +12,11 @@ import { renderRoute } from "./render";
 const API = "http://api.test";
 const HARBOR = ORG_IDS.harbor;
 const ID = {
-  diapers4: "4c1f7a2e-9b3d-4e5f-8a6b-000000000101", // open, $70 of $84, 6 donors
+  diapers4: DEMO_NEEDS.fourteenLeft, // open, $70 of $84, 6 donors
+  formula: DEMO_NEEDS.priceDrop, // funded $92, cheaper today: the demo's $12 surplus
   tuna: "4c1f7a2e-9b3d-4e5f-8a6b-000000000108", // topping_up, $5 more needed
   toothbrushes: "4c1f7a2e-9b3d-4e5f-8a6b-000000000109", // funded, pricier today
-  laundry: "4c1f7a2e-9b3d-4e5f-8a6b-000000000110", // funded, cheaper today
+  laundry: "4c1f7a2e-9b3d-4e5f-8a6b-000000000110", // funded, same price today
   socks: "4c1f7a2e-9b3d-4e5f-8a6b-000000000111", // ordered, TGT-4417-2290
   diapers3: "4c1f7a2e-9b3d-4e5f-8a6b-000000000112", // delivered, 93% match
   handSoap: "4c1f7a2e-9b3d-4e5f-8a6b-000000000113", // draft
@@ -115,7 +116,7 @@ describe("Staff need page /staff/needs/:id by status", () => {
   it("funded with an approved purchase: Step 2 unlocked with the buy link", async () => {
     mockDb.approvePurchase(HARBOR, planOf(HARBOR, ID.laundry).purchase.id);
     await openPage(ID.laundry, "Laundry detergent");
-    expect(step(/Step 1 · Purchase approved/)).toHaveTextContent("$13.49 each at Target");
+    expect(step(/Step 1 · Purchase approved/)).toHaveTextContent("$14.59 each at Target");
     const order = step(/Step 2/);
     expect(order).not.toHaveTextContent("Unlocks");
     expect(within(order).getByRole("link", { name: /Buy it at Target/ })).toHaveAttribute(
@@ -201,38 +202,38 @@ describe("Staff need page /staff/needs/:id by status", () => {
 
 describe("Purchase plan", () => {
   it("demo flow: cheaper offer → surplus to the next need → approve → mark as ordered", async () => {
-    await openPage(ID.laundry, "Laundry detergent");
+    await openPage(ID.formula, "Infant formula");
     await userEvent.click(screen.getByRole("button", { name: "Check price & plan purchase" }));
 
     const card = await screen.findByRole("region", { name: /Step 1 · Approve the purchase/ });
     expect(within(card).getByText("Price now")).toBeInTheDocument();
     expect(within(card).getByText("Cheaper")).toBeInTheDocument();
-    expect(within(card).getByText("$14.59")).toHaveClass("line-through");
-    expect(within(card).getByText("$13.49")).toBeInTheDocument();
+    expect(within(card).getByText("$42.40")).toHaveClass("line-through");
+    expect(within(card).getByText("$36.79")).toBeInTheDocument();
     expect(
       within(within(card).getByRole("list", { name: "What the price check found" }))
         .getAllByRole("listitem")
         .map((li) => li.textContent),
-    ).toEqual(["Price dropped 8%", "In stock"]);
-    expect(within(card).getByText(/^Same product as posted, now \$1\.10 cheaper/)).toBeInTheDocument();
+    ).toEqual(["Price dropped 13%", "In stock"]);
+    expect(within(card).getByText(/^Same product as posted, now \$5\.61 cheaper/)).toBeInTheDocument();
     expect(within(card).getByText("AI check:")).toBeInTheDocument();
     expect(within(card).getByRole("link", { name: /^Open offer/ })).toHaveAttribute("rel", "noopener noreferrer");
-    expect(paragraph("$7.00 surplus will move to Diapers, size 4, your next most urgent need.")).toBeInTheDocument();
+    expect(paragraph("$12.00 surplus will move to Diapers, size 4, your next most urgent need.")).toBeInTheDocument();
     expect(within(card).getByText("Calculated by NeedGrid, not the AI.")).toBeInTheDocument();
     expect(step(/Step 2/)).toHaveTextContent("Unlocks after approval");
 
     await userEvent.click(within(card).getByRole("button", { name: "Approve purchase" }));
-    expect(await screen.findByText("Approved. $7.00 moved to Diapers, size 4.")).toBeInTheDocument();
+    expect(await screen.findByText("Approved. $12.00 moved to Diapers, size 4.")).toBeInTheDocument();
     expect(await screen.findByRole("region", { name: /Step 1 · Purchase approved/ })).toBeInTheDocument();
 
     const order = step(/Step 2/);
-    await userEvent.type(within(order).getByLabelText("Retailer order number"), "  TGT-2000-55  ");
+    await userEvent.type(within(order).getByLabelText("Retailer order number"), "  CVS-2000-55  ");
     await userEvent.click(within(order).getByRole("button", { name: "Mark as ordered" }));
     expect(await screen.findByText("Marked as ordered")).toBeInTheDocument();
-    expect(await screen.findByRole("region", { name: /Waiting for delivery/ })).toHaveTextContent("TGT-2000-55");
+    expect(await screen.findByRole("region", { name: /Waiting for delivery/ })).toHaveTextContent("CVS-2000-55");
 
     // The next need's tile moved on the public wall.
-    expect(mockDb.getOrgPage("harbor-food-bank")?.needs.find((n) => n.id === ID.diapers4)?.fundedCents).toBe(7700);
+    expect(mockDb.getOrgPage("harbor-food-bank")?.needs.find((n) => n.id === ID.diapers4)?.fundedCents).toBe(8200);
   });
 
   it("shows the staged wait while the price check runs", async () => {
@@ -340,10 +341,10 @@ describe("Purchase plan", () => {
 
   it("approves exactly once on a double click", async () => {
     const approve = vi.spyOn(mockDb, "approvePurchase");
-    await openPage(ID.laundry, "Laundry detergent");
+    await openPage(ID.formula, "Infant formula");
     await userEvent.click(screen.getByRole("button", { name: "Check price & plan purchase" }));
     await userEvent.dblClick(await screen.findByRole("button", { name: "Approve purchase" }));
-    expect(await screen.findByText("Approved. $7.00 moved to Diapers, size 4.")).toBeInTheDocument();
+    expect(await screen.findByText("Approved. $12.00 moved to Diapers, size 4.")).toBeInTheDocument();
     expect(await screen.findByRole("region", { name: /Step 1 · Purchase approved/ })).toBeInTheDocument();
     expect(approve).toHaveBeenCalledTimes(1);
   });

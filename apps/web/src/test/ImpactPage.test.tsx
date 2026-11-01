@@ -11,7 +11,7 @@ import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { itemName, reasonLabel, sortImpactItems } from "@/features/impact/impactItems";
 import { MOCK_UPLOAD_URL } from "@/lib/cloudinary";
-import { DEMO_IMPACT_TOKEN, ORG_IDS } from "@/mocks/fixtures";
+import { DEMO_IMPACT_TOKEN, DEMO_NEEDS, ORG_IDS } from "@/mocks/fixtures";
 import { mockDb } from "@/mocks/mockDb";
 import { server } from "@/mocks/node";
 import { IMPACT_REFRESH_MS } from "@/pages/ImpactPage";
@@ -21,7 +21,8 @@ const API = "http://api.test";
 const IMPACT_ROUTE = `${API}/api/impact/:token`;
 const IMPACT = `/impact/${DEMO_IMPACT_TOKEN}`;
 const ID = {
-  diapers4: "4c1f7a2e-9b3d-4e5f-8a6b-000000000101", // open
+  diapers4: DEMO_NEEDS.fourteenLeft, // open
+  wipes: DEMO_NEEDS.ordered, // ordered, $25 of Sam's gift: the delivery scene
   tuna: "4c1f7a2e-9b3d-4e5f-8a6b-000000000108", // topping_up
   toothbrushes: "4c1f7a2e-9b3d-4e5f-8a6b-000000000109", // funded
   laundry: "4c1f7a2e-9b3d-4e5f-8a6b-000000000110", // funded
@@ -72,7 +73,7 @@ describe("Impact page /impact/:token", () => {
     const articles = within(screen.getByRole("list", { name: "What your gift paid for" })).getAllByRole("article");
     expect(articles.map((a) => within(a).getByRole("heading", { level: 2 }).textContent)).toEqual([
       "Diapers, size 3",
-      "Women's socks",
+      "Baby wipes",
     ]);
 
     const delivered = card("Diapers, size 3");
@@ -91,15 +92,15 @@ describe("Impact page /impact/:token", () => {
     expect(within(delivered).getByRole("list", { name: "Progress of Diapers, size 3" })).toBeInTheDocument();
     expect(within(delivered).queryByText("We'll post a photo here when it arrives.")).not.toBeInTheDocument();
 
-    const pending = card("Women's socks");
+    const pending = card("Baby wipes");
     expect(within(pending).getByText("We'll post a photo here when it arrives.")).toBeInTheDocument();
     expect(within(pending).getByText("Harbor Food Bank · sent to the next most urgent need")).toBeInTheDocument();
     expect(badge(pending, "Ordered")).toBeInTheDocument();
     expect(within(pending).getByText("$25.00")).toBeInTheDocument();
     expect(
-      within(pending).getByRole("img", { name: "Hanes Women's Cushioned Crew Socks, 12 Pack" }),
+      within(pending).getByRole("img", { name: "Huggies Natural Care Sensitive Baby Wipes, Unscented, 72 Count" }),
     ).toBeInTheDocument();
-    expect(within(pending).getByRole("list", { name: "Progress of Women's socks" })).toBeInTheDocument();
+    expect(within(pending).getByRole("list", { name: "Progress of Baby wipes" })).toBeInTheDocument();
   });
 
   it("keeps the impact link, links to the charity's wall, and says it isn't a tax receipt", async () => {
@@ -182,8 +183,8 @@ describe("Impact page /impact/:token", () => {
     await screen.findByRole("heading", { level: 1, name: "Hi Sam, your diapers arrived." });
     expect(calls).toBe(1);
 
-    // Meanwhile the charity records the socks' delivery.
-    expect(mockDb.recordDelivery(ORG_IDS.harbor, ID.socks, { photoUrl: MOCK_UPLOAD_URL, staffNote: "" }).kind).toBe(
+    // Meanwhile the charity records the wipes' delivery (the demo's delivery scene).
+    expect(mockDb.recordDelivery(ORG_IDS.harbor, ID.wipes, { photoUrl: MOCK_UPLOAD_URL, staffNote: "" }).kind).toBe(
       "ok",
     );
     await act(() => vi.advanceTimersByTimeAsync(IMPACT_REFRESH_MS - 1_000));
@@ -191,14 +192,11 @@ describe("Impact page /impact/:token", () => {
     await act(() => vi.advanceTimersByTimeAsync(1_000));
     await waitFor(() => expect(calls).toBe(2));
 
-    const socks = await screen.findByRole("img", { name: "Women's socks after it arrived at Harbor Food Bank" });
-    expect(socks).toHaveAttribute("src", MOCK_UPLOAD_URL);
+    const wipes = await screen.findByRole("img", { name: "Baby wipes after it arrived at Harbor Food Bank" });
+    expect(wipes).toHaveAttribute("src", MOCK_UPLOAD_URL);
     // Newest arrival first, and the headline follows it.
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Hi Sam, your women's socks arrived.");
-    expect(screen.getByText("Women's socks arrived. The photo is on this page.")).toHaveAttribute(
-      "aria-live",
-      "polite",
-    );
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Hi Sam, your baby wipes arrived.");
+    expect(screen.getByText("Baby wipes arrived. The photo is on this page.")).toHaveAttribute("aria-live", "polite");
   });
 
   it("not found for a bad token, and it stops asking", async () => {

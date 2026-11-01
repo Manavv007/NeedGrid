@@ -115,7 +115,7 @@ describe("Staff login /staff/login", () => {
   it("Sign out forgets the key and every staff query, then shows the login page", async () => {
     const { router, queryClient } = renderRoute("/staff/login");
     await signInWith(HARBOR_KEY);
-    await screen.findByRole("tab", { name: "Open 8" });
+    await screen.findByRole("tab", { name: "Open 6" });
     expect(staffQueries(queryClient).length).toBeGreaterThan(0);
 
     await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
@@ -155,7 +155,7 @@ describe("StaffGate", () => {
   it("a 401 mid-session clears the key and goes to the login page", async () => {
     sessionStorage.setItem(STAFF_KEY_STORAGE, HARBOR_KEY);
     const { router, queryClient } = renderRoute("/staff?tab=funded");
-    await screen.findByRole("tab", { name: "Funded 2" });
+    await screen.findByRole("tab", { name: "Funded 3" });
 
     // The passcode was changed elsewhere: the next request with the old one is refused.
     sessionStorage.setItem(STAFF_KEY_STORAGE, "rotated-elsewhere");

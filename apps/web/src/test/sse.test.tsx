@@ -7,17 +7,22 @@ import {
 } from "@needgrid/shared";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { act, render, renderHook } from "@testing-library/react";
+import { http, HttpResponse } from "msw";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { queryKeys } from "@/lib/queries";
-import { ORG_REFRESH_MS, useOrgStream, type NeedUpdate } from "@/lib/sse";
+import { ORG_REFRESH_MS, STREAM_RETRY_DELAYS_MS, useOrgStream, type NeedUpdate } from "@/lib/sse";
+import { DEMO_NEEDS } from "@/mocks/fixtures";
 import { mockDb } from "@/mocks/mockDb";
+import { server } from "@/mocks/node";
 import { fixtureCard, installFakeEventSource, onlyStream, sendNeedUpdate, FakeEventSource } from "./fakeEventSource";
 import { createTestQueryClient } from "./render";
 
 const SLUG = "harbor-food-bank";
-const DIAPERS = "4c1f7a2e-9b3d-4e5f-8a6b-000000000101"; // $70 of $84, 6 donors
+const DIAPERS = DEMO_NEEDS.fourteenLeft; // $70 of $84, 6 donors
 const NEW_NEED = "4c1f7a2e-9b3d-4e5f-8a6b-000000000999";
+/** MSW pattern for GET /api/orgs/:slug (paths.org would URL-encode the ":"). */
+const ORG_ROUTE = "http://api.test/api/orgs/:slug";
 
 beforeEach(() => {
   installFakeEventSource();
@@ -178,12 +183,178 @@ describe("useOrgStream", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["org", SLUG], exact: true });
     expect(FakeEventSource.instances).toHaveLength(1); // the browser reconnects, not us
   });
+});
 
-  it("stops for good when the server refuses the stream (unknown charity)", () => {
+describe("useOrgStream when the browser gives up on the stream (a non-200, e.g. Render waking up)", () => {
+  /** Only timers are fake; MSW answers the org check on real ticks. */
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  });
+  afterEach(() => {
+    Reflect.deleteProperty(document, "visibilityState");
+  });
+
+  /** Counts the org checks (GET /api/orgs/:slug); `status` other than 200 answers with that error. */
+  function orgChecks(status = 200): { count: () => number } {
+    let count = 0;
+    server.use(
+      http.get(ORG_ROUTE, () => {
+        count += 1;
+        if (status === 200) return undefined; // the mock API answers with the org page
+        const error =
+          status === 404
+            ? { code: "NOT_FOUND", message: "Organization not found" }
+            : { code: "UPSTREAM", message: "Bad gateway" };
+        return HttpResponse.json({ error }, { status });
+      }),
+    );
+    return { count: () => count };
+  }
+
+  /** Lets the org check finish (a few real macrotasks; the fake timers don't move). */
+  async function settle(): Promise<void> {
+    await act(async () => {
+      for (let i = 0; i < 20; i += 1) await new Promise<void>((resolve) => setImmediate(resolve));
+    });
+  }
+
+  const latest = () => FakeEventSource.instances.at(-1) ?? onlyStream();
+
+  function refuse(source: FakeEventSource = latest()) {
+    act(() => source.fail({ permanent: true }));
+  }
+
+  async function advance(ms: number) {
+    await act(() => vi.advanceTimersByTimeAsync(ms));
+  }
+
+  function setVisibility(state: DocumentVisibilityState) {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+  }
+
+  it("checks the charity, then opens a new stream after 5 s, 15 s, 30 s, 60 s and every 60 s after that", async () => {
+    const checks = orgChecks();
     const { result } = renderStream(loadedClient());
-    act(() => onlyStream().fail({ permanent: true }));
-    expect(result.current).toBe("closed");
+    refuse();
+    expect(result.current).toBe("reconnecting");
     expect(onlyStream().closed).toBe(true);
+    await settle();
+    expect(checks.count()).toBe(1);
+
+    for (const [i, delay] of [5_000, 15_000, 30_000, 60_000, 60_000, 60_000].entries()) {
+      expect(STREAM_RETRY_DELAYS_MS[Math.min(i, STREAM_RETRY_DELAYS_MS.length - 1)]).toBe(delay);
+      await advance(delay - 1);
+      expect(FakeEventSource.instances).toHaveLength(i + 1);
+      await advance(1);
+      expect(FakeEventSource.instances).toHaveLength(i + 2);
+      expect(latest().url).toBe("http://api.test/api/orgs/harbor-food-bank/stream");
+      expect(result.current).toBe("reconnecting"); // the pill stays up meanwhile
+      refuse();
+      await settle();
+      expect(checks.count()).toBe(i + 2);
+    }
+  });
+
+  it("catches up once a new stream opens, and starts the delays over after the next refusal", async () => {
+    orgChecks();
+    const queryClient = loadedClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderStream(queryClient);
+    refuse();
+    await settle();
+    await advance(5_000);
+    refuse();
+    await settle();
+    await advance(15_000);
+    expect(FakeEventSource.instances).toHaveLength(3);
+
+    act(() => latest().open());
+    expect(result.current).toBe("live");
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["org", SLUG], exact: true });
+
+    refuse();
+    await settle();
+    await advance(5_000);
+    expect(FakeEventSource.instances).toHaveLength(4);
+  });
+
+  it("stops for good when the charity doesn't exist (404)", async () => {
+    const checks = orgChecks(404);
+    const { result } = renderStream(loadedClient());
+    refuse();
+    await settle();
+    expect(checks.count()).toBe(1);
+    expect(result.current).toBe("closed");
+    await advance(10 * 60_000);
     expect(FakeEventSource.instances).toHaveLength(1);
+  });
+
+  it("keeps trying when the check itself fails (the API is still waking up)", async () => {
+    const checks = orgChecks(502);
+    const { result } = renderStream(loadedClient());
+    refuse();
+    await settle();
+    expect(checks.count()).toBe(1);
+    expect(result.current).toBe("reconnecting");
+    await advance(5_000);
+    expect(FakeEventSource.instances).toHaveLength(2);
+  });
+
+  it("cancels the pending retry when the last user unmounts", async () => {
+    orgChecks();
+    const { unmount } = renderStream(loadedClient());
+    refuse();
+    await settle();
+
+    unmount();
+    await act(() => Promise.resolve()); // the stream is released a microtask later
+    await advance(10 * 60_000);
+    expect(FakeEventSource.instances).toHaveLength(1);
+  });
+
+  it("pauses the retry while the tab is hidden and resumes it when the tab is visible", async () => {
+    const checks = orgChecks();
+    renderStream(loadedClient());
+    refuse();
+    await settle();
+
+    setVisibility("hidden");
+    await advance(10 * 60_000);
+    expect(FakeEventSource.instances).toHaveLength(1);
+
+    setVisibility("visible");
+    await settle();
+    expect(checks.count()).toBe(2);
+    await advance(5_000); // the same step again: the cancelled retry never ran
+    expect(FakeEventSource.instances).toHaveLength(2);
+  });
+
+  it("keeps one stream and one retry timer per charity, however many components or errors", async () => {
+    const checks = orgChecks();
+    const queryClient = loadedClient();
+    function Listener() {
+      useOrgStream(SLUG);
+      return null;
+    }
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Listener />
+        <Listener />
+      </QueryClientProvider>,
+    );
+    renderStream(queryClient);
+    const first = onlyStream();
+    refuse(first);
+    refuse(first); // the same refusal reported twice
+    await settle();
+    expect(checks.count()).toBe(1);
+
+    // One timer: a second one would have opened a third stream by now.
+    await advance(5_000);
+    expect(FakeEventSource.instances).toHaveLength(2);
+    expect(FakeEventSource.instances.filter((source) => !source.closed)).toHaveLength(1);
   });
 });

@@ -20,6 +20,7 @@ const isNotFound = (error: unknown) => error instanceof ApiClientError && error.
 
 /**
  * `/thanks/:token`: right after a payment, what the gift paid for (brief §9.5, ThankYouPhone.dc.html).
+ * The impact link comes first: there is no account and no email, so it's the donor's only way back.
  * As private as the impact page (same token), so kept out of search engines too.
  */
 export function ThankYouPage() {
@@ -89,6 +90,9 @@ function ThankYou({ token, impact }: { token: string; impact: ImpactRes }) {
         </p>
       </header>
 
+      {/* No account and no email: this link is the only way back, so it comes first. */}
+      <SaveImpactLink token={token} />
+
       {clamped.success ? (
         <p className="flex gap-2.5 rounded-[10px] bg-badge-warning-bg px-3.5 py-3 text-sm leading-normal text-badge-warning-text">
           <Info aria-hidden="true" className="mt-0.5 size-4.5 shrink-0" strokeWidth={2.5} />
@@ -102,7 +106,6 @@ function ThankYou({ token, impact }: { token: string; impact: ImpactRes }) {
       {impact.items.length > 0 ? <GiftSplit items={impact.items} /> : null}
       <SentOnExplainer items={impact.items} />
       <UnassignedNote totalCents={impact.totalCents} items={impact.items} />
-      <SaveImpactLink token={token} />
 
       <Button asChild size="lg">
         <Link to={impactPath(token)}>Open my impact page</Link>

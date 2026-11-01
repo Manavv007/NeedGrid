@@ -3,10 +3,11 @@ import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MOCK_UPLOAD_URL } from "@/lib/cloudinary";
+import { DEMO_NEEDS } from "@/mocks/fixtures";
 import { mockDb } from "@/mocks/mockDb";
 import { renderRoute } from "./render";
 
-const DIAPERS = "4c1f7a2e-9b3d-4e5f-8a6b-000000000101"; // Harbor, open, $14 left of $84
+const DIAPERS = DEMO_NEEDS.fourteenLeft; // Harbor, open, $14 left of $84
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -31,7 +32,7 @@ describe("The whole loop in mock mode", () => {
     await act(() => router.navigate(`/staff/needs/${DIAPERS}`));
     await user.click(await screen.findByRole("button", { name: "Check price & plan purchase" }));
     await user.click(await screen.findByRole("button", { name: "Approve purchase" }));
-    expect(await screen.findByText("Approved. $4.00 moved to Infant formula, 12.4 oz.")).toBeInTheDocument();
+    expect(await screen.findByText("Approved. $4.00 moved to Canned chicken, 12.5 oz.")).toBeInTheDocument();
     await screen.findByRole("link", { name: /Buy it at/ });
     await user.type(screen.getByLabelText("Retailer order number"), "WM-2000-1");
     await user.click(screen.getByRole("button", { name: "Mark as ordered" }));
@@ -60,9 +61,9 @@ describe("The whole loop in mock mode", () => {
     expect(within(diapers).getByRole("heading", { name: "Your diapers arrived!" })).toBeInTheDocument();
     expect(within(diapers).getByText(/On the shelf by lunch\. Thank you for helping us get it\./)).toBeInTheDocument();
     expect(within(diapers).getByText("$10.00")).toBeInTheDocument();
-    const formula = screen.getByRole("article", { name: "Infant formula, 12.4 oz" });
-    expect(within(formula).getByText("Harbor Food Bank · sent to the next most urgent need")).toBeInTheDocument();
-    expect(within(formula).getByText("$4.00")).toBeInTheDocument();
-    expect(within(formula).getByText("We'll post a photo here when it arrives.")).toBeInTheDocument();
+    const chicken = screen.getByRole("article", { name: "Canned chicken, 12.5 oz" });
+    expect(within(chicken).getByText("Harbor Food Bank · sent to the next most urgent need")).toBeInTheDocument();
+    expect(within(chicken).getByText("$4.00")).toBeInTheDocument();
+    expect(within(chicken).getByText("We'll post a photo here when it arrives.")).toBeInTheDocument();
   }, 60_000);
 });

@@ -83,13 +83,15 @@ async function renderPanel() {
 }
 
 describe("PayPalCheckout (@paypal/react-paypal-js root API)", () => {
-  it("loads the SDK with the client id, USD and intent capture", async () => {
+  it("loads the SDK with the client id, USD, intent capture, and PayPal as the only funding source", async () => {
     await renderPanel();
     expect(sdk.options).toEqual({
       clientId: "sandbox-client-id",
       currency: "USD",
       intent: "capture",
       components: "buttons",
+      // Becomes the SDK's disable-funding=card,venmo,paylater: no card, Venmo or Pay Later buttons.
+      disableFunding: "card,venmo,paylater",
     });
     expect(buttons().forceReRender).toEqual(["1400:true"]);
   });
