@@ -11,8 +11,12 @@
  * There is one connection per slug (per query client), shared by every component that uses the hook
  * and closed when the last one unmounts. EventSource reconnects by itself after a network error
  * (the server asks for `retry: 3000`); this module only reports it. When the server answers with
- * anything but a stream (404 for an unknown charity, or another HTTP error) the browser gives up and
- * so do we: status `closed`.
+ * anything but a stream, the browser gives up (`readyState` CLOSED). On Render that is usually the API
+ * waking up or redeploying, so we don't: we ask for the org page first (`GET /api/orgs/:slug`). A 404
+ * means the charity doesn't exist, and we stop for good (status `closed`). Anything else, and we open
+ * a new stream after STREAM_RETRY_DELAYS_MS (5 s, 15 s, 30 s, then every 60 s), showing `reconnecting`
+ * meanwhile. One retry timer per slug at most; it's cancelled when the last user unmounts or while
+ * the tab is hidden (the retry resumes when the tab is visible again).
  *
  * With VITE_USE_MOCKS=true the stream is the mock API's in-page feed (mocks/mockDb.ts) instead, so
  * mock live updates only reach screens in the same tab.
@@ -20,17 +24,17 @@
 import {
   NEED_UPDATED_EVENT,
   NeedCard,
+  OrgPageRes,
   paths,
   type NeedDetailRes,
-  type OrgPageRes,
   type StaffNeedListRes,
 } from "@needgrid/shared";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useCallback, useLayoutEffect, useRef, useSyncExternalStore } from "react";
-import { apiUrl } from "./api";
+import { ApiClientError, apiGet, apiUrl } from "./api";
 import { queryKeys } from "./queries";
 
-/** `closed` (not in the brief's list): the server refused the stream, so live updates have stopped. */
+/** `closed` (not in the brief's list): the charity doesn't exist, so live updates have stopped. */
 export type StreamStatus = "connecting" | "live" | "reconnecting" | "closed";
 
 /** One live change: the server's card and what this tab had cached for it before (null if nothing). */
@@ -38,6 +42,10 @@ export type NeedUpdate = { card: NeedCard; previous: NeedCard | null };
 
 /** The org page (stats included) is refetched at most this often while updates arrive. */
 export const ORG_REFRESH_MS = 10_000;
+
+/** Waits before each new stream after the server refused one; after the list, every 60 s. */
+const LAST_RETRY_DELAY_MS = 60_000;
+export const STREAM_RETRY_DELAYS_MS: readonly number[] = [5_000, 15_000, 30_000, LAST_RETRY_DELAY_MS];
 
 type Connection = {
   readonly queryClient: QueryClient;
@@ -111,27 +119,106 @@ function setStatus(conn: Connection, status: StreamStatus): void {
 function openEventSource(conn: Connection): () => void {
   // No EventSource (very old browsers, jsdom): no live updates; pages still load and refresh normally.
   if (typeof EventSource === "undefined") return () => undefined;
-  const source = new EventSource(apiUrl(paths.orgStream(conn.slug)));
 
-  source.addEventListener("open", () => {
-    if (conn.interrupted) catchUp(conn);
-    conn.interrupted = false;
-    setStatus(conn, "live");
-  });
-  source.addEventListener("error", () => {
-    if (source.readyState === EventSource.CLOSED) {
-      source.close();
-      setStatus(conn, "closed");
+  let source: EventSource | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let orgCheck: AbortController | null = null;
+  /** Streams we opened again after the browser gave up, since the last one that worked: picks the next delay. */
+  let retries = 0;
+  /** A retry is due but the tab is hidden: it runs when the tab is visible again. */
+  let paused = false;
+  let done = false;
+
+  const connect = () => {
+    source?.close();
+    const next = new EventSource(apiUrl(paths.orgStream(conn.slug)));
+    source = next;
+    next.addEventListener("open", () => {
+      if (conn.interrupted) catchUp(conn);
+      conn.interrupted = false;
+      retries = 0;
+      setStatus(conn, "live");
+    });
+    next.addEventListener("error", () => {
+      conn.interrupted = true;
+      setStatus(conn, "reconnecting");
+      // Still CONNECTING: the browser is already trying again. CLOSED: it gave up, so we retry.
+      if (next.readyState !== EventSource.CLOSED) return;
+      next.close();
+      if (source === next) source = null;
+      retryLater();
+    });
+    next.addEventListener(NEED_UPDATED_EVENT, (event) => {
+      if (typeof event.data === "string") receive(conn, event.data);
+    });
+  };
+
+  const cancelRetry = () => {
+    if (retryTimer !== null) clearTimeout(retryTimer);
+    retryTimer = null;
+    orgCheck?.abort();
+    orgCheck = null;
+  };
+
+  /** Check the charity still exists, then open a new stream after the next delay. */
+  const retryLater = () => {
+    if (done || retryTimer !== null || orgCheck !== null) return;
+    if (document.visibilityState === "hidden") {
+      paused = true;
       return;
     }
-    // Still CONNECTING: the browser is already trying again.
-    conn.interrupted = true;
-    setStatus(conn, "reconnecting");
-  });
-  source.addEventListener(NEED_UPDATED_EVENT, (event) => {
-    if (typeof event.data === "string") receive(conn, event.data);
-  });
-  return () => source.close();
+    const check = new AbortController();
+    orgCheck = check;
+    void orgExists(conn.slug, check.signal).then((exists) => {
+      if (orgCheck !== check) return; // cancelled meanwhile
+      orgCheck = null;
+      if (!exists) {
+        done = true;
+        setStatus(conn, "closed");
+        return;
+      }
+      const delay = STREAM_RETRY_DELAYS_MS[retries] ?? LAST_RETRY_DELAY_MS;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        retries += 1;
+        connect();
+      }, delay);
+    });
+  };
+
+  const onVisibilityChange = () => {
+    if (document.visibilityState === "hidden") {
+      if (retryTimer === null && orgCheck === null) return;
+      cancelRetry();
+      paused = true;
+    } else if (paused) {
+      paused = false;
+      retryLater();
+    }
+  };
+
+  document.addEventListener("visibilitychange", onVisibilityChange);
+  connect();
+  return () => {
+    done = true;
+    cancelRetry();
+    source?.close();
+    source = null;
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+  };
+}
+
+/**
+ * False only when the API says the charity doesn't exist (404). Any other failure (a 502 while Render
+ * wakes the API, no network) may pass, so it's worth another try.
+ */
+async function orgExists(slug: string, signal: AbortSignal): Promise<boolean> {
+  try {
+    await apiGet(paths.org(slug), OrgPageRes, { signal });
+    return true;
+  } catch (error) {
+    return !(error instanceof ApiClientError && error.code === "NOT_FOUND");
+  }
 }
 
 function openMockFeed(conn: Connection): () => void {

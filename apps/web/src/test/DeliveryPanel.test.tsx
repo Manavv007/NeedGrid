@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_IMAGE_BYTES, MOCK_UPLOAD_URL } from "@/lib/cloudinary";
-import { ORG_IDS } from "@/mocks/fixtures";
+import { DEMO_NEEDS, ORG_IDS } from "@/mocks/fixtures";
 import { mockDb } from "@/mocks/mockDb";
 import { server } from "@/mocks/node";
 import { renderRoute } from "./render";
@@ -12,7 +12,7 @@ import { renderRoute } from "./render";
 const API = "http://api.test";
 const DELIVERY_ROUTE = `${API}/api/staff/needs/:id/delivery`;
 const CONFIRM_ROUTE = `${API}/api/staff/deliveries/:id/confirm`;
-const SOCKS = "4c1f7a2e-9b3d-4e5f-8a6b-000000000111"; // Harbor, ordered at Target, 3 donors
+const WIPES = DEMO_NEEDS.ordered; // Harbor, ordered at Walmart, 4 donors: the delivery scene
 
 const REVIEW = "Needs your review before donors see it";
 const DELIVERED = /Delivered, donors have been updated/;
@@ -27,12 +27,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function openSocks() {
+async function openWipes() {
   // applyAccept: false, so a non-image file reaches our own check (a phone's picker can't be trusted).
   const user = userEvent.setup({ applyAccept: false });
-  const utils = renderRoute(`/staff/needs/${SOCKS}`);
+  const utils = renderRoute(`/staff/needs/${WIPES}`);
   // The first full render in a file is the slowest (cold imports): more time on a busy machine.
-  await screen.findByRole("heading", { level: 1, name: "Women's socks" }, { timeout: 10_000 });
+  await screen.findByRole("heading", { level: 1, name: "Baby wipes" }, { timeout: 10_000 });
   return { ...utils, user };
 }
 
@@ -73,8 +73,8 @@ const failWith = (route: string, status: number, code: string, message: string) 
 describe("Delivery panel: step 1", () => {
   it("takes a camera photo, checks the file and the note before anything is sent", async () => {
     const sent = bodiesSentTo(DELIVERY_ROUTE);
-    const { user } = await openSocks();
-    expect(panel()).toHaveTextContent("3 donors waiting for a photo");
+    const { user } = await openWipes();
+    expect(panel()).toHaveTextContent("4 donors waiting for a photo");
     const input = photoInput();
     expect(input).toHaveAttribute("type", "file");
     expect(input).toHaveAttribute("accept", "image/*");
@@ -113,7 +113,7 @@ describe("Delivery panel: step 1", () => {
         await gate;
       }),
     );
-    const { user } = await openSocks();
+    const { user } = await openWipes();
     await checkDelivery(user, "On the shelf by lunch");
     expect(await screen.findByRole("region", { name: "Checking the delivery" })).toBeInTheDocument();
     expect(
@@ -128,7 +128,7 @@ describe("Delivery panel: step 1", () => {
 describe("Delivery panel: the server's answer", () => {
   it("a matching photo is delivered at once, with the server's score and message", async () => {
     const sent = bodiesSentTo(DELIVERY_ROUTE);
-    const { user } = await openSocks();
+    const { user } = await openWipes();
     await checkDelivery(user, "  on the shelf by lunch ");
 
     expect(await screen.findByText("Delivered. Donors can see the photo now.")).toBeInTheDocument();
@@ -136,10 +136,10 @@ describe("Delivery panel: the server's answer", () => {
     expect(within(card).getByRole("meter", { name: "Photo match score" })).toHaveAttribute("aria-valuenow", "94");
     expect(within(card).getByText("94% match")).toBeInTheDocument();
     expect(within(card).getByText("AI check:").parentElement).toHaveTextContent(
-      "AI check: The photo shows Hanes Women's Cushioned Crew Socks, 12 Pack, the product that was ordered.",
+      "AI check: The photo shows Huggies Natural Care Sensitive Baby Wipes, Unscented, 72 Count, the product that was ordered.",
     );
     expect(within(card).getByText("“On the shelf by lunch. Thank you for helping us get it.”")).toBeInTheDocument();
-    expect(within(card).getByRole("img", { name: "Women's socks after it arrived" })).toHaveAttribute(
+    expect(within(card).getByRole("img", { name: "Baby wipes after it arrived" })).toHaveAttribute(
       "src",
       MOCK_UPLOAD_URL,
     );
@@ -150,7 +150,7 @@ describe("Delivery panel: the server's answer", () => {
 
   it("a doubtful photo waits for review; Confirm sends no message when it wasn't edited", async () => {
     const confirms = bodiesSentTo(CONFIRM_ROUTE);
-    const { user } = await openSocks();
+    const { user } = await openWipes();
     await checkDelivery(user, "mismatch? only 2 packs");
 
     expect(await screen.findByText("Please review the photo before donors see it.")).toBeInTheDocument();
@@ -160,16 +160,16 @@ describe("Delivery panel: the server's answer", () => {
 
     expect(within(review).getByText("What we ordered")).toBeInTheDocument();
     expect(
-      within(review).getByRole("img", { name: "Hanes Women's Cushioned Crew Socks, 12 Pack" }),
+      within(review).getByRole("img", { name: "Huggies Natural Care Sensitive Baby Wipes, Unscented, 72 Count" }),
     ).toBeInTheDocument();
     expect(within(review).getByText("What arrived")).toBeInTheDocument();
-    expect(within(review).getByRole("img", { name: "Women's socks after it arrived" })).toHaveAttribute(
+    expect(within(review).getByRole("img", { name: "Baby wipes after it arrived" })).toHaveAttribute(
       "src",
       MOCK_UPLOAD_URL,
     );
     expect(within(review).getByRole("meter", { name: "Photo match score" })).toHaveAttribute("aria-valuenow", "42");
     expect(within(review).getByText("42% match · check it")).toBeInTheDocument();
-    expect(within(review).getByText("AI check:").parentElement).toHaveTextContent(/doesn't clearly show Hanes/);
+    expect(within(review).getByText("AI check:").parentElement).toHaveTextContent(/doesn't clearly show Huggies/);
 
     const message = within(review).getByLabelText("Message for donors");
     expect(message).toHaveValue("Mismatch? only 2 packs. Thank you for helping us get it.");
@@ -185,7 +185,7 @@ describe("Delivery panel: the server's answer", () => {
 
   it("an edited message is what Confirm sends, and what donors see", async () => {
     const confirms = bodiesSentTo(CONFIRM_ROUTE);
-    const { user } = await openSocks();
+    const { user } = await openWipes();
     await checkDelivery(user, "mismatch");
     const review = await screen.findByRole("region", { name: REVIEW });
     const message = within(review).getByLabelText("Message for donors");
@@ -201,7 +201,7 @@ describe("Delivery panel: the server's answer", () => {
   it("when the automatic check didn't run, says so; staff look and confirm", async () => {
     const confirms = bodiesSentTo(CONFIRM_ROUTE);
     mockDb.armScenario("deliveryFail");
-    const { user } = await openSocks();
+    const { user } = await openWipes();
     await checkDelivery(user);
 
     const review = await screen.findByRole("region", { name: REVIEW });
@@ -225,7 +225,7 @@ describe("Delivery panel: the server's answer", () => {
 
   it("Retake photo goes back to step 1 with the note kept", async () => {
     const sent = bodiesSentTo(DELIVERY_ROUTE);
-    const { user } = await openSocks();
+    const { user } = await openWipes();
     await checkDelivery(user, "mismatch at the door");
     const review = await screen.findByRole("region", { name: REVIEW });
 
@@ -248,9 +248,9 @@ describe("Delivery panel: the server's answer", () => {
 
   it("reopens the review after a reload when a delivery still needs it", async () => {
     expect(
-      mockDb.recordDelivery(ORG_IDS.harbor, SOCKS, { photoUrl: MOCK_UPLOAD_URL, staffNote: "mismatch" }).kind,
+      mockDb.recordDelivery(ORG_IDS.harbor, WIPES, { photoUrl: MOCK_UPLOAD_URL, staffNote: "mismatch" }).kind,
     ).toBe("ok");
-    await openSocks();
+    await openWipes();
     const review = screen.getByRole("region", { name: REVIEW });
     expect(within(review).getByText("42% match · check it")).toBeInTheDocument();
     expect(within(review).getByLabelText("Message for donors")).toHaveValue(
@@ -266,7 +266,7 @@ describe("Delivery panel: never twice, and errors", () => {
   it("checks once on a double click, and confirms once on a double click", async () => {
     const record = vi.spyOn(mockDb, "recordDelivery");
     const confirm = vi.spyOn(mockDb, "confirmDelivery");
-    const { user } = await openSocks();
+    const { user } = await openWipes();
     await addPhoto(user);
     await user.type(noteBox(), "mismatch");
     await user.dblClick(checkButton());
@@ -289,7 +289,7 @@ describe("Delivery panel: never twice, and errors", () => {
     ],
   ])("a %i from the check says so in place, and the photo stays for another try", async (status, code, sent, shown) => {
     failWith(DELIVERY_ROUTE, status, code, sent);
-    const { user } = await openSocks();
+    const { user } = await openWipes();
     await checkDelivery(user);
     expect(await within(panel()).findByRole("alert")).toHaveTextContent(shown);
     expect(screen.getByText("Photo uploaded")).toBeInTheDocument();
@@ -302,12 +302,12 @@ describe("Delivery panel: never twice, and errors", () => {
         DELIVERY_ROUTE,
         () => {
           // Someone else recorded the delivery a moment earlier.
-          mockDb.recordDelivery(ORG_IDS.harbor, SOCKS, { photoUrl: MOCK_UPLOAD_URL, staffNote: "" });
+          mockDb.recordDelivery(ORG_IDS.harbor, WIPES, { photoUrl: MOCK_UPLOAD_URL, staffNote: "" });
         },
         { once: true },
       ),
     );
-    const { user } = await openSocks();
+    const { user } = await openWipes();
     await checkDelivery(user);
     // In a toast, and in place until the page shows the delivery someone else recorded.
     expect(
@@ -318,7 +318,7 @@ describe("Delivery panel: never twice, and errors", () => {
 
   it("a failed confirm keeps the review with the server's reason", async () => {
     failWith(CONFIRM_ROUTE, 409, "INVALID_STATE", "This delivery can't be confirmed (the item is closed now)");
-    const { user } = await openSocks();
+    const { user } = await openWipes();
     await checkDelivery(user, "mismatch");
     const review = await screen.findByRole("region", { name: REVIEW });
     await user.click(within(review).getByRole("button", { name: "Confirm delivery" }));

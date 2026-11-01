@@ -18,27 +18,27 @@ async function post(body: unknown) {
 
 describe("mock Match me rules (B §9.5)", () => {
   it("prefers needs the budget finishes (most similar first), then fills with the closest above it", () => {
-    const res = mockMatch({ text: "diapers for babies", budgetCents: 2500 });
-    expect(titles(res)).toEqual(["Diapers, size 4", "Baby wipes, unscented", "Infant formula, 12.4 oz"]);
+    const res = mockMatch({ text: "diapers and food for families", budgetCents: 2500 });
+    expect(titles(res)).toEqual(["Diapers, size 4", "Canned tuna, 5 oz", "Canned chicken, 12.5 oz"]);
     expect(res.matches.map((m) => m.reason)).toEqual([
       "Your $25 covers the last of Diapers, size 4 at Harbor Food Bank",
-      "Your $25 covers the last of Baby wipes, unscented at Harbor Food Bank",
-      "Your $25 goes toward Infant formula, 12.4 oz at Harbor Food Bank",
+      "Your $25 covers the last of Canned tuna, 5 oz at Harbor Food Bank",
+      "Your $25 goes toward Canned chicken, 12.5 oz at Harbor Food Bank",
     ]);
   });
 
   it("fills with needs above the budget, closest remaining first among equally similar ones", () => {
-    const res = mockMatch({ text: "baby", budgetCents: 1500 });
-    // Only the diapers ($14 left) fit $15; wipes ($19 left) are closer than formula ($56 left).
-    expect(titles(res)).toEqual(["Diapers, size 4", "Baby wipes, unscented", "Infant formula, 12.4 oz"]);
-    expect(res.matches[0]?.need.remainingCents).toBeLessThanOrEqual(1500);
-    expect(res.matches.slice(1).every((m) => m.need.remainingCents > 1500)).toBe(true);
-    expect(res.matches[1]?.reason).toBe("Your $15 goes toward Baby wipes, unscented at Harbor Food Bank");
+    const res = mockMatch({ text: "food", budgetCents: 2500 });
+    // Only the tuna ($5 more) fits $25; the chicken ($26 left) is closer than the puppy food ($27 left).
+    expect(titles(res)).toEqual(["Canned tuna, 5 oz", "Canned chicken, 12.5 oz", "Puppy food, 30 lb bag"]);
+    expect(res.matches[0]?.need.remainingCents).toBeLessThanOrEqual(2500);
+    expect(res.matches.slice(1).every((m) => m.need.remainingCents > 2500)).toBe(true);
+    expect(res.matches[1]?.reason).toBe("Your $25 goes toward Canned chicken, 12.5 oz at Harbor Food Bank");
   });
 
   it("among needs that fit, ties go to the most urgent", () => {
-    const res = mockMatch({ text: "baby", budgetCents: 2000 });
-    expect(titles(res).slice(0, 2)).toEqual(["Diapers, size 4", "Baby wipes, unscented"]);
+    const res = mockMatch({ text: "food", budgetCents: 3000 });
+    expect(titles(res)).toEqual(["Puppy food, 30 lb bag", "Canned chicken, 12.5 oz", "Canned tuna, 5 oz"]);
   });
 
   it("only suggests needs taking donations with something left, at most 3, valid MatchRes", () => {
@@ -76,7 +76,7 @@ describe("mock Match me rules (B §9.5)", () => {
 
 describe("mock POST /api/match", () => {
   it("answers a valid MatchReq with MatchRes", async () => {
-    const res = await post({ text: "diapers for babies", budgetCents: 2500 });
+    const res = await post({ text: "diapers and food for families", budgetCents: 2500 });
     expect(res.status).toBe(200);
     expect(MatchRes.parse(res.json).matches).toHaveLength(3);
   });

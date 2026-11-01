@@ -31,6 +31,7 @@ Format: `- [ ] YYYY-MM-DD from <A|B|C>: <what you need> — <why> (link to PR/is
 - [ ] 2026-10-31 from C: delivery check — the web shows "The automatic check didn't run. Please look at the photo and confirm." when a delivery has `matchScore` 0 **and** `aiNotes` exactly "Automatic check unavailable; please confirm." (your §9.4 wording). Please keep that string, or tell C if it changes — so staff aren't shown a misleading "0% match" meter when the vision call failed (PR feat/web-delivery-impact)
 - [ ] 2026-10-31 from C: confirm delivery — when staff empty the AI-written donor message and confirm, the web sends `{ message: "" }` (`ConfirmDeliveryReq` allows it); please store that as `message: null` (no donor message), as the mocks do, or say how you want "no message" sent. The web treats an empty message as none either way (PR feat/web-delivery-impact)
 - [ ] 2026-10-31 from C: Match me UI is ready behind the `matchMe` flag (on in mock mode only). It shows `reason` as plain text, expects ≤ 3 matches and handles 429 and your 503 'resting' message. Tell C when `POST /api/match` is merged so the flag goes on for real — until then real-API builds hide the box (PR feat/web-invoices-match)
+- [ ] 2026-11-01 from C: Mocks now mirror the seed heroes (diapers $14 left, formula price drop → surplus, wipes ordered, 4 coats). If the seed heroes change, tell C — the web's `DEMO_NEEDS` fixtures and the demo tests follow `HEROES` in `catalog.ts` (PR feat/web-real-ready)
 
 ## C — Frontend & Demo (apps/web except src/dashboard, docs/)
 

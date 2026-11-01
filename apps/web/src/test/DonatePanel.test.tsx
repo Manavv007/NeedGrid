@@ -3,13 +3,14 @@ import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DEMO_NEEDS } from "@/mocks/fixtures";
 import { mockDb } from "@/mocks/mockDb";
 import { server } from "@/mocks/node";
 import { renderRoute } from "./render";
 
 const API = "http://api.test";
-const DIAPERS = "4c1f7a2e-9b3d-4e5f-8a6b-000000000101"; // $14 left of $84
-const FORMULA = "4c1f7a2e-9b3d-4e5f-8a6b-000000000102"; // next most urgent: $56 left of $112
+const DIAPERS = DEMO_NEEDS.fourteenLeft; // $14 left of $84
+const CHICKEN = "4c1f7a2e-9b3d-4e5f-8a6b-000000000104"; // next most urgent: $26 left of $66 ($10 held)
 const NEED_URL = `/o/harbor-food-bank/n/${DIAPERS}`;
 const CREATE_ROUTE = `${API}${paths.createOrder}`;
 /** MSW pattern (paths.captureOrder would URL-encode the ":"). */
@@ -127,11 +128,11 @@ describe("DonatePanel with the mock PayPal button", () => {
     const heading = await screen.findByRole("heading", { name: "This item was just fully funded!" });
     expect(heading).toHaveFocus();
     expect(screen.getByText("Someone beat you to it. Nothing was charged.")).toBeInTheDocument();
-    const next = screen.getByRole("article", { name: "Infant formula, 12.4 oz" });
-    expect(within(next).getByText("$56 left")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Fund Infant formula, 12.4 oz" })).toHaveAttribute(
+    const next = screen.getByRole("article", { name: "Canned chicken, 12.5 oz" });
+    expect(within(next).getByText("$26 left")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Fund Canned chicken, 12.5 oz" })).toHaveAttribute(
       "href",
-      `/o/harbor-food-bank/n/${FORMULA}?donate=1`,
+      `/o/harbor-food-bank/n/${CHICKEN}?donate=1`,
     );
     expect(screen.getByRole("link", { name: "See everything still needed" })).toHaveAttribute(
       "href",

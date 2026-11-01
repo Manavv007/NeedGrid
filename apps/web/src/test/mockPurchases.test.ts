@@ -9,16 +9,17 @@ import {
   StaffNeedDetailRes,
 } from "@needgrid/shared";
 import { afterEach, describe, expect, it } from "vitest";
-import { ORG_IDS } from "@/mocks/fixtures";
+import { DEMO_NEEDS, ORG_IDS } from "@/mocks/fixtures";
 import { MANUAL_PRODUCT_FLAG, mockDb } from "@/mocks/mockDb";
 
 const API = "http://api.test";
 const HARBOR = ORG_IDS.harbor;
 const ID = {
-  diapers4: "4c1f7a2e-9b3d-4e5f-8a6b-000000000101", // open, $70 of $84, Harbor's most urgent
+  diapers4: DEMO_NEEDS.fourteenLeft, // open, $70 of $84, Harbor's most urgent
+  formula: DEMO_NEEDS.priceDrop, // funded $92, fresh price cheaper → $80
   tuna: "4c1f7a2e-9b3d-4e5f-8a6b-000000000108", // topping_up, approved purchase
   toothbrushes: "4c1f7a2e-9b3d-4e5f-8a6b-000000000109", // funded $38, fresh price pricier → $41
-  laundry: "4c1f7a2e-9b3d-4e5f-8a6b-000000000110", // funded $95, fresh price cheaper → $88
+  laundry: "4c1f7a2e-9b3d-4e5f-8a6b-000000000110", // funded $95, same price today
   enzyme: "4c1f7a2e-9b3d-4e5f-8a6b-000000000208", // Paws, funded $108, 10¢ cheaper → still $108
   snacks: "4c1f7a2e-9b3d-4e5f-8a6b-000000000307", // Room 12, funded, hand-written product
 } as const;
@@ -57,21 +58,22 @@ async function post(path: string, body: unknown, key: string | null = "harbor-de
 
 describe("mock purchase plan (B's route)", () => {
   it("cheaper: a proposed purchase at today's price, a surplus naming the next most urgent need", () => {
-    const res = plan(HARBOR, ID.laundry);
+    const res = plan(HARBOR, ID.formula);
     expect(res.priceChange).toBe("cheaper");
-    expect(res.purchase).toMatchObject({ status: "proposed", needId: ID.laundry, newTargetCents: 8800 });
-    expect(res.purchase.newTargetCents).toBe(computeTargetCents(res.purchase.offer.unitPriceCents, 6));
-    expect(res.money).toMatchObject({ kind: "surplus", cents: 700, nextNeed: { id: ID.diapers4 } });
-    expect(res.purchase.flags).toEqual(["Price dropped 8%", "In stock"]);
+    expect(res.purchase).toMatchObject({ status: "proposed", needId: ID.formula, newTargetCents: 8000 });
+    expect(res.purchase.newTargetCents).toBe(computeTargetCents(res.purchase.offer.unitPriceCents, 2));
+    expect(res.money).toMatchObject({ kind: "surplus", cents: 1200, nextNeed: { id: ID.diapers4 } });
+    expect(res.purchase.flags).toEqual(["Price dropped 13%", "In stock"]);
     expect(res.alternatives.length).toBeGreaterThan(0);
     // Nothing moves until approval.
-    expect(staffNeed(HARBOR, ID.laundry).need).toMatchObject({ status: "funded", fundedCents: 9500 });
-    expect(staffNeed(HARBOR, ID.laundry).purchases[0]?.id).toBe(res.purchase.id);
+    expect(staffNeed(HARBOR, ID.formula).need).toMatchObject({ status: "funded", fundedCents: 9200 });
+    expect(staffNeed(HARBOR, ID.formula).purchases[0]?.id).toBe(res.purchase.id);
   });
 
   it("pricier → gap, same price → exact, and a hand-written product is never refreshed", () => {
     expect(plan(HARBOR, ID.toothbrushes)).toMatchObject({ priceChange: "pricier", money: { kind: "gap", cents: 300 } });
     expect(plan(ORG_IDS.paws, ID.enzyme)).toMatchObject({ priceChange: "cheaper", money: { kind: "exact" } });
+    expect(plan(HARBOR, ID.laundry)).toMatchObject({ priceChange: "same", money: { kind: "exact" } });
 
     const manual = plan(ORG_IDS.room12, ID.snacks);
     expect(manual).toMatchObject({ priceChange: "same", money: { kind: "exact" }, alternatives: [] });
@@ -80,9 +82,9 @@ describe("mock purchase plan (B's route)", () => {
   });
 
   it("a new check supersedes the older proposal", () => {
-    const first = plan(HARBOR, ID.laundry);
-    const second = plan(HARBOR, ID.laundry);
-    const purchases = staffNeed(HARBOR, ID.laundry).purchases;
+    const first = plan(HARBOR, ID.formula);
+    const second = plan(HARBOR, ID.formula);
+    const purchases = staffNeed(HARBOR, ID.formula).purchases;
     expect(purchases.map((p) => [p.id, p.status])).toEqual([
       [second.purchase.id, "proposed"],
       [first.purchase.id, "superseded"],
@@ -103,22 +105,22 @@ describe("mock purchase plan (B's route)", () => {
 describe("mock approve and mark ordered (A's rules)", () => {
   it("surplus: moves to the next need as price_drop, lowers the target, keeps the need funded", () => {
     const before = staffNeed(HARBOR, ID.diapers4).need;
-    const { purchase } = plan(HARBOR, ID.laundry);
+    const { purchase } = plan(HARBOR, ID.formula);
     const res = approve(HARBOR, purchase.id);
 
-    expect(res.surplusMoved).toEqual({ toNeedId: ID.diapers4, toNeedTitle: "Diapers, size 4", amountCents: 700 });
+    expect(res.surplusMoved).toEqual({ toNeedId: ID.diapers4, toNeedTitle: "Diapers, size 4", amountCents: 1200 });
     expect(res.gapCents).toBeNull();
     expect(res.purchase).toMatchObject({ status: "approved", approvedAt: expect.any(String) });
-    expect(res.need).toMatchObject({ status: "funded", fundedCents: 8800, targetCents: 8800, remainingCents: 0 });
-    expect(res.need.product?.unitPriceCents).toBe(1349);
+    expect(res.need).toMatchObject({ status: "funded", fundedCents: 8000, targetCents: 8000, remainingCents: 0 });
+    expect(res.need.product?.unitPriceCents).toBe(3679);
 
     const next = staffNeed(HARBOR, ID.diapers4).need;
-    expect(next).toMatchObject({ fundedCents: before.fundedCents + 700, donorCount: before.donorCount + 1 });
+    expect(next).toMatchObject({ fundedCents: before.fundedCents + 1200, donorCount: before.donorCount + 1 });
     // The public tile wall moved too.
-    expect(mockDb.getOrgPage("harbor-food-bank")?.needs.find((n) => n.id === ID.diapers4)?.fundedCents).toBe(7700);
-    expect(staffNeed(HARBOR, ID.laundry).timeline.at(-1)).toMatchObject({
+    expect(mockDb.getOrgPage("harbor-food-bank")?.needs.find((n) => n.id === ID.diapers4)?.fundedCents).toBe(8200);
+    expect(staffNeed(HARBOR, ID.formula).timeline.at(-1)).toMatchObject({
       type: "purchase_approved",
-      label: "Purchase approved at Target",
+      label: "Purchase approved at CVS",
     });
   });
 
@@ -149,19 +151,19 @@ describe("mock approve and mark ordered (A's rules)", () => {
   });
 
   it("mark ordered needs an approved purchase; then the purchase and need are ordered", () => {
-    const { purchase } = plan(HARBOR, ID.laundry);
-    expect(mockDb.markOrdered(HARBOR, purchase.id, { orderRef: "TGT-1" })).toMatchObject({
+    const { purchase } = plan(HARBOR, ID.formula);
+    expect(mockDb.markOrdered(HARBOR, purchase.id, { orderRef: "CVS-1" })).toMatchObject({
       kind: "refused",
       status: 409,
     });
     approve(HARBOR, purchase.id);
-    const result = mockDb.markOrdered(HARBOR, purchase.id, { orderRef: "TGT-1" });
+    const result = mockDb.markOrdered(HARBOR, purchase.id, { orderRef: "CVS-1" });
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
     const ordered = PurchaseRes.parse(result.ordered);
-    expect(ordered.purchase).toMatchObject({ status: "ordered", orderRef: "TGT-1", orderedAt: expect.any(String) });
+    expect(ordered.purchase).toMatchObject({ status: "ordered", orderRef: "CVS-1", orderedAt: expect.any(String) });
     expect(ordered.need.status).toBe("ordered");
-    expect(staffNeed(HARBOR, ID.laundry).timeline.at(-1)).toMatchObject({ type: "ordered" });
+    expect(staffNeed(HARBOR, ID.formula).timeline.at(-1)).toMatchObject({ type: "ordered" });
   });
 
   it("a topping_up need's approved purchase can't be ordered or approved again", () => {
@@ -175,7 +177,7 @@ describe("mock approve and mark ordered (A's rules)", () => {
 
 describe("mock purchase handlers", () => {
   it("401 without the staff key, 404 for unknown or malformed ids", async () => {
-    expect((await post(paths.staff.purchasePlan(ID.laundry), {}, null)).status).toBe(401);
+    expect((await post(paths.staff.purchasePlan(ID.formula), {}, null)).status).toBe(401);
     expect((await post(paths.staff.purchasePlan("4c1f7a2e-9b3d-4e5f-8a6b-000000000999"), {})).status).toBe(404);
     expect((await post(paths.staff.approvePurchase("not-a-uuid"), {})).status).toBe(404);
     expect((await post(paths.staff.markOrdered(crypto.randomUUID()), { orderRef: "X" })).status).toBe(404);
@@ -186,17 +188,17 @@ describe("mock purchase handlers", () => {
     expect(refused.status).toBe(409);
     expect(ApiError.parse(refused.json).error.code).toBe("INVALID_STATE");
 
-    const planned = PurchasePlanRes.parse((await post(paths.staff.purchasePlan(ID.laundry), {})).json);
+    const planned = PurchasePlanRes.parse((await post(paths.staff.purchasePlan(ID.formula), {})).json);
     const approved = await post(paths.staff.approvePurchase(planned.purchase.id), {});
     expect(approved.status).toBe(200);
-    expect(ApprovePurchaseRes.parse(approved.json).surplusMoved?.amountCents).toBe(700);
+    expect(ApprovePurchaseRes.parse(approved.json).surplusMoved?.amountCents).toBe(1200);
 
     const blank = await post(paths.staff.markOrdered(planned.purchase.id), { orderRef: "   " });
     expect(blank.status).toBe(400);
     expect(ApiError.parse(blank.json).error.code).toBe("VALIDATION");
 
-    const ordered = await post(paths.staff.markOrdered(planned.purchase.id), { orderRef: " TGT-77 " });
+    const ordered = await post(paths.staff.markOrdered(planned.purchase.id), { orderRef: " CVS-77 " });
     expect(ordered.status).toBe(200);
-    expect(PurchaseRes.parse(ordered.json).purchase.orderRef).toBe("TGT-77");
+    expect(PurchaseRes.parse(ordered.json).purchase.orderRef).toBe("CVS-77");
   });
 });

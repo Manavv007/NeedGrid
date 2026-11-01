@@ -14,7 +14,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BAD_LINE_MESSAGE, readNdjson } from "@/lib/ndjson";
 import { mockReconcileReport } from "@/mocks/assistant";
-import { ORG_IDS, sponsorInvoices } from "@/mocks/fixtures";
+import { DEMO_NEEDS, ORG_IDS, sponsorInvoices } from "@/mocks/fixtures";
 import { AMOUNTS_CHANGED_ERROR, CHAT_REQUESTS_PER_MINUTE, mockDb, SPONSOR_HOLD_DAYS } from "@/mocks/mockDb";
 
 const API = "http://api.test";
@@ -22,13 +22,13 @@ const ROOM12 = ORG_IDS.room12;
 const ROOM12_KEY = "room12-demo-2026";
 /** Room 12 starts with a sent and a paid sponsor invoice (fixtures, C-10). */
 const FIXTURE_INVOICES = sponsorInvoices.filter((r) => r.orgId === ROOM12).map((r) => r.invoice);
-const WINTER = {
-  size67: "4c1f7a2e-9b3d-4e5f-8a6b-000000000301", // $30 of $152 raised
-  size8: "4c1f7a2e-9b3d-4e5f-8a6b-000000000302", // nothing yet
-  size1012: "4c1f7a2e-9b3d-4e5f-8a6b-000000000303", // $10 raised, $15 on hold
-} as const;
-const WINTER_IDS = Object.values(WINTER);
-const DIAPERS_4 = "4c1f7a2e-9b3d-4e5f-8a6b-000000000101"; // Harbor
+/**
+ * The invoice scene's four open coat needs, sizes 6, 8, 10 and 12: $30 of $152 raised, nothing yet,
+ * $10 raised with $15 on hold, nothing yet.
+ */
+const WINTER_IDS = [...DEMO_NEEDS.coats];
+const COAT_SIZE_8 = DEMO_NEEDS.coats[1];
+const DIAPERS_4 = DEMO_NEEDS.fourteenLeft; // Harbor
 
 afterEach(() => {
   expect(mockDb.moneyProblems()).toEqual([]);
@@ -99,13 +99,14 @@ describe("mock propose (A's proposeAction for create_invoice)", () => {
         totalCents: remaining.reduce((sum, cents) => sum + cents, 0),
       },
     });
-    expect(action.preview.title).toBe("Invoice Acme Hardware for 3 items");
+    expect(action.preview.title).toBe("Invoice Acme Hardware for 4 items");
     expect(action.preview.totalCents).toBe(remaining.reduce((sum, cents) => sum + cents, 0));
     expect(action.preview.lines.map((l) => l.label)).toEqual([
       "Send to",
-      "Winter coats, kids' size 6–7 · 4 × coat",
+      "Winter coats, kids' size 6 · 4 × coat",
       "Winter coats, kids' size 8 · 4 × coat",
-      "Winter coats, kids' size 10–12 · 3 × coat",
+      "Winter coats, kids' size 10 · 3 × coat",
+      "Winter coats, kids' size 12 · 3 × coat",
       "After approval",
     ]);
     expect(action.preview.lines[0]?.value).toBe("Acme Hardware · sponsor@example.com");
@@ -161,17 +162,17 @@ describe("mock approve and reject (A §8.6, §8.7)", () => {
     expect(mockDb.listSponsorInvoices(ORG_IDS.harbor)).toEqual([]);
 
     // Donors can't double-fund a held tile.
-    expect(mockDb.createOrder({ needId: WINTER.size8, amountCents: 1000, rollOverConsent: true }).kind).toBe(
+    expect(mockDb.createOrder({ needId: COAT_SIZE_8, amountCents: 1000, rollOverConsent: true }).kind).toBe(
       "fullyFunded",
     );
     // The holds outlast a normal checkout hold: still there 13 days on.
     vi.spyOn(Date, "now").mockReturnValue(Date.now() + (SPONSOR_HOLD_DAYS - 1) * 86_400_000);
-    expect(card(WINTER.size8).remainingCents).toBe(0);
+    expect(card(COAT_SIZE_8).remainingCents).toBe(0);
   });
 
   it("amounts changed since the proposal → failed with A's exact message; nothing is held or invoiced", () => {
     const action = propose();
-    donate(WINTER.size8);
+    donate(COAT_SIZE_8);
     const before = WINTER_IDS.map((id) => card(id).heldCents);
     const result = mockDb.approveAgentAction(ROOM12, action.id);
     expect(result).toMatchObject({
@@ -314,7 +315,7 @@ describe("mock assistant chat (B §9.6)", () => {
     expect(report).toMatchObject({ ok: true, mismatches: [] });
     expect(report.paypalTotalCents).toBe(report.recordedTotalCents);
     expect(report.matchedCount).toBeGreaterThan(0);
-    donate(WINTER.size8);
+    donate(COAT_SIZE_8);
     const after = mockReconcileReport(ROOM12, false);
     expect(after.pending).toBe(pending + 1);
     expect(after.report.recordedTotalCents).toBe(report.recordedTotalCents);

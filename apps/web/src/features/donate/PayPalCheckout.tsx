@@ -8,6 +8,9 @@
  * `clientId` / `currency: "USD"` / `intent: "capture"`, `forceReRender` for amount changes, and
  * `actions.restart()` in `onApprove`, PayPal's recommended recovery from INSTRUMENT_DECLINED.
  * The v6 `onApprove` only receives `{ orderId }` and has no restart.
+ *
+ * PayPal only (team decision, Nov 1): `disableFunding` hides the card, Venmo and Pay Later buttons.
+ * The root API's loader turns it into the SDK's `disable-funding` query parameter.
  */
 import { PayPalButtons, PayPalScriptProvider, usePayPalScriptReducer } from "@paypal/react-paypal-js";
 import { useMemo } from "react";
@@ -16,8 +19,20 @@ import type { CheckoutButtonProps } from "./checkout";
 
 type PayPalCheckoutProps = CheckoutButtonProps & { clientId: string };
 
+/** Funding sources the SDK must not offer, so donors see only the PayPal button. */
+const DISABLED_FUNDING = "card,venmo,paylater";
+
 export function PayPalCheckout({ clientId, ...props }: PayPalCheckoutProps) {
-  const options = useMemo(() => ({ clientId, currency: "USD", intent: "capture", components: "buttons" }), [clientId]);
+  const options = useMemo(
+    () => ({
+      clientId,
+      currency: "USD",
+      intent: "capture",
+      components: "buttons",
+      disableFunding: DISABLED_FUNDING,
+    }),
+    [clientId],
+  );
   return (
     <PayPalScriptProvider options={options}>
       <Buttons {...props} />

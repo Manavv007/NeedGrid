@@ -10,6 +10,7 @@ import {
   type CreateOrderReq,
 } from "@needgrid/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DEMO_NEEDS } from "@/mocks/fixtures";
 import { mockDb } from "@/mocks/mockDb";
 import { scenariosFromSearch } from "@/mocks/scenarios";
 
@@ -19,9 +20,8 @@ afterEach(() => {
 
 const API = "http://api.test";
 const ID = {
-  diapers4: "4c1f7a2e-9b3d-4e5f-8a6b-000000000101", // open, $70 of $84, urgency 3, due tomorrow
-  formula: "4c1f7a2e-9b3d-4e5f-8a6b-000000000102", // open, $41 of $112, $15 held, urgency 3, due in 2 days
-  wipes: "4c1f7a2e-9b3d-4e5f-8a6b-000000000103", // open, $22 of $41
+  diapers4: DEMO_NEEDS.fourteenLeft, // open, $70 of $84, urgency 3, due tomorrow
+  chicken: "4c1f7a2e-9b3d-4e5f-8a6b-000000000104", // open, $30 of $66, $10 held: Harbor's next most urgent
   laundry: "4c1f7a2e-9b3d-4e5f-8a6b-000000000110", // funded
   handSoap: "4c1f7a2e-9b3d-4e5f-8a6b-000000000113", // draft
 } as const;
@@ -74,7 +74,7 @@ describe("mock money rules (mirror apps/api/src/money)", () => {
     const full = mockDb.createOrder({ needId: ID.diapers4, amountCents: 500, rollOverConsent: true });
     expect(full.kind).toBe("fullyFunded");
     if (full.kind === "fullyFunded") {
-      expect(FullyFundedDetails.parse({ nextNeed: full.nextNeed }).nextNeed?.id).toBe(ID.formula);
+      expect(FullyFundedDetails.parse({ nextNeed: full.nextNeed }).nextNeed?.id).toBe(ID.chicken);
     }
     expect(mockDb.createOrder({ needId: ID.laundry, amountCents: 500, rollOverConsent: true }).kind).toBe(
       "fullyFunded",
@@ -115,13 +115,13 @@ describe("mock money rules (mirror apps/api/src/money)", () => {
     expect(create(ID.diapers4, 500).amountCents).toBe(500);
 
     const res = capture(a.orderId);
-    // Room for A is $84 − $70 − B's $5 = $9: that fits, the other $5 overflows to the formula.
+    // Room for A is $84 − $70 − B's $5 = $9: that fits, the other $5 overflows to the chicken.
     expect(res.allocations).toEqual([
       { needId: ID.diapers4, needTitle: "Diapers, size 4", amountCents: 900, reason: "direct" },
-      { needId: ID.formula, needTitle: "Infant formula, 12.4 oz", amountCents: 500, reason: "overflow" },
+      { needId: ID.chicken, needTitle: "Canned chicken, 12.5 oz", amountCents: 500, reason: "overflow" },
     ]);
     expect(detail(ID.diapers4)).toMatchObject({ fundedCents: 7900, heldCents: 500, status: "open" });
-    expect(detail(ID.formula)).toMatchObject({ fundedCents: 4600, donorCount: 6 });
+    expect(detail(ID.chicken)).toMatchObject({ fundedCents: 3500, donorCount: 5 });
   });
 
   it("keeps overflow unallocated without consent (the server proposes a refund)", () => {
@@ -135,7 +135,7 @@ describe("mock money rules (mirror apps/api/src/money)", () => {
     expect(res.allocations).toEqual([
       { needId: ID.diapers4, needTitle: "Diapers, size 4", amountCents: 900, reason: "direct" },
     ]);
-    expect(detail(ID.formula).fundedCents).toBe(4100);
+    expect(detail(ID.chicken).fundedCents).toBe(3000);
   });
 
   it("creates an impact record for /thanks and /impact", () => {
@@ -151,7 +151,7 @@ describe("mock money rules (mirror apps/api/src/money)", () => {
 
   it("raises the org's raised total", () => {
     const before = mockDb.listOrgSummaries().find((o) => o.slug === "harbor-food-bank")?.stats.raisedCents ?? 0;
-    capture(create(ID.wipes, 1000).orderId);
+    capture(create(ID.chicken, 1000).orderId);
     const after = mockDb.listOrgSummaries().find((o) => o.slug === "harbor-food-bank")?.stats.raisedCents ?? 0;
     expect(after - before).toBe(1000);
   });
@@ -160,9 +160,9 @@ describe("mock money rules (mirror apps/api/src/money)", () => {
 describe("mock scenarios", () => {
   it("fullyFunded: another donor holds the rest first, once", () => {
     mockDb.armScenario("fullyFunded");
-    const first = mockDb.createOrder({ needId: ID.wipes, amountCents: 1000, rollOverConsent: true });
+    const first = mockDb.createOrder({ needId: ID.chicken, amountCents: 1000, rollOverConsent: true });
     expect(first.kind).toBe("fullyFunded");
-    expect(detail(ID.wipes).remainingCents).toBe(0);
+    expect(detail(ID.chicken).remainingCents).toBe(0);
     expect(mockDb.takeScenario("fullyFunded")).toBe(false);
   });
 
@@ -209,7 +209,7 @@ describe("mock donation handlers", () => {
     expect(error.code).toBe("FULLY_FUNDED");
     expect(FullyFundedDetails.parse(error.details).nextNeed?.id).toBe(ID.diapers4);
 
-    const order = CreateOrderRes.parse((await post(paths.createOrder, { needId: ID.wipes, amountCents: 1000 })).json);
+    const order = CreateOrderRes.parse((await post(paths.createOrder, { needId: ID.chicken, amountCents: 1000 })).json);
     mockDb.armScenario("declined");
     const declined = await post(paths.captureOrder(order.orderId), {});
     expect(declined.status).toBe(409);

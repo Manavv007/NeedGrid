@@ -111,7 +111,7 @@ function Impact({ token, impact }: { token: string; impact: ImpactRes }) {
 }
 
 /**
- * "Women's socks arrived. The photo is on this page." when a refetch brings a new arrival while the
+ * "Baby wipes arrived. The photo is on this page." when a refetch brings a new arrival while the
  * donor is here. Nothing is announced for what was already there on the first load.
  */
 function useArrivalAnnouncement(items: readonly ImpactItem[]): string {

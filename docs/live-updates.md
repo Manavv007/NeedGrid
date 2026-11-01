@@ -14,8 +14,17 @@ Owner: C (frontend). Server side: A's `apps/api/src/routes/stream.ts` and `apps/
     the whole org page is refetched at most once per 10 s instead, so "Raised so far" catches up.
   - `["need", id]`: `need` is replaced when that page is cached.
   - `["staffNeeds", …]`: invalidated.
-- Status: `connecting`, `live`, `reconnecting` (the browser is retrying; the "Reconnecting live updates…" pill shows)
-  and `closed` (the server refused the stream, e.g. 404; browsers don't retry that and neither do we).
+- Status: `connecting`, `live`, `reconnecting` (the "Reconnecting live updates…" pill shows) and `closed` (the charity
+  doesn't exist, so live updates stopped for good).
+- Two kinds of drop:
+  - A dropped connection: the browser retries by itself (the server asks for `retry: 3000`); we only report it.
+  - A refused stream (any non-200, e.g. a 502 from Render while the API wakes up or redeploys): browsers give up on
+    that `EventSource` (`readyState` CLOSED). We first ask for the org page (`GET /api/orgs/:slug`). A 404 means the
+    charity doesn't exist: we stop (`closed`). Anything else (the org page, or another error because the API is still
+    waking up): we open a new stream after 5 s, then 15 s, 30 s and 60 s, then every 60 s, and check the org again
+    before each wait. The delays start over once a stream opens. There is at most one retry timer per charity; it is
+    cancelled when the last screen using the stream unmounts, and paused while the tab is hidden (it picks up the
+    same step when the tab is visible again).
 - After a reconnect the org page, need pages and staff lists are refetched, since events may have been missed.
 - Mounted on the tile wall (`/o/:slug`), the need page and the staff console (`/staff`).
 
@@ -70,6 +79,6 @@ Two browsers (or two devices) pointed at the same deployed API:
 3. The big screen's bar moves when the PayPal window opens (the hold) and fills when the payment is confirmed; the ticker
    says it's fully funded.
 
-Known limitation: if the API answers the stream with an error status (for example a 502 from Render during a deploy),
-browsers give up on that `EventSource` and the page stops updating until it is reloaded. Reload the big screen after
-every API deploy.
+After an API deploy (or while Render wakes the API), the big screen shows "Reconnecting live updates…" and opens a
+new stream by itself once the API answers again (the retry delays above). Leave the tab visible: a hidden tab waits
+until it is shown again.

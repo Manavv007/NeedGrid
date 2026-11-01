@@ -3,6 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { delay, http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DEMO_NEEDS } from "@/mocks/fixtures";
 import { mockDb } from "@/mocks/mockDb";
 import { server } from "@/mocks/node";
 import { renderRoute } from "./render";
@@ -11,7 +12,9 @@ import { renderRoute } from "./render";
 vi.mock("@/lib/features", () => ({ features: { flyers: true, matchMe: true, moneyActions: true } }));
 
 const MATCH = "http://api.test/api/match";
-const DIAPERS_4 = "4c1f7a2e-9b3d-4e5f-8a6b-000000000101";
+const DIAPERS_4 = DEMO_NEEDS.fourteenLeft;
+/** Matches the diapers and two food needs (mocks/match.ts keyword overlap). */
+const PROMPT = "diapers and food for families";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -53,24 +56,24 @@ function recordBodies(): unknown[] {
 }
 
 describe("Match me box (landing page, flag on)", () => {
-  it("diapers for babies, $25 → exactly MatchReq → 3 cards with reasons → a card opens its need page", async () => {
+  it("diapers and food for families, $25 → exactly MatchReq → 3 cards with reasons → a card opens its need page", async () => {
     const bodies = recordBodies();
     const { user, router } = await openLanding();
     expect(budgetBox()).toHaveValue("25");
     expect(screen.getByRole("button", { name: "$25" })).toHaveAttribute("aria-pressed", "true");
 
-    await ask(user, "  diapers for babies ");
+    await ask(user, `  ${PROMPT} `);
     expect(await screen.findByText("3 matches found")).toBeInTheDocument();
-    expect(bodies).toEqual([{ text: "diapers for babies", budgetCents: 2500 } satisfies MatchReq]);
+    expect(bodies).toEqual([{ text: PROMPT, budgetCents: 2500 } satisfies MatchReq]);
 
     const cards = within(results()).getAllByRole("article");
     expect(cards.map((card) => within(card).getByRole("heading", { level: 3 }).textContent)).toEqual([
       "Diapers, size 4",
-      "Baby wipes, unscented",
-      "Infant formula, 12.4 oz",
+      "Canned tuna, 5 oz",
+      "Canned chicken, 12.5 oz",
     ]);
-    const [diapers, , formula] = cards;
-    if (!diapers || !formula) throw new Error("expected 3 cards");
+    const [diapers, , chicken] = cards;
+    if (!diapers || !chicken) throw new Error("expected 3 cards");
     expect(within(diapers).getByText("AI suggestion")).toBeInTheDocument();
     expect(
       within(diapers).getByText("Your $25 covers the last of Diapers, size 4 at Harbor Food Bank"),
@@ -78,9 +81,9 @@ describe("Match me box (landing page, flag on)", () => {
     expect(within(diapers).getByText("Harbor Food Bank")).toBeInTheDocument();
     expect(within(diapers).getByText("$14 left")).toBeInTheDocument();
     expect(within(diapers).getByRole("progressbar", { name: "Diapers, size 4 funding" })).toBeInTheDocument();
-    // Display only: the budget doesn't cover the formula, so the gift goes toward it.
+    // Display only: the budget doesn't cover the chicken, so the gift goes toward it.
     expect(within(diapers).queryByText(/goes toward it/)).not.toBeInTheDocument();
-    expect(within(formula).getByText("Your $25 goes toward it")).toBeInTheDocument();
+    expect(within(chicken).getByText("Your $25 goes toward it")).toBeInTheDocument();
     expect(within(diapers).getByRole("link", { name: "Fund it: Diapers, size 4" })).toHaveAttribute(
       "href",
       `/o/harbor-food-bank/n/${DIAPERS_4}?donate=1`,
@@ -133,9 +136,9 @@ describe("Match me box (landing page, flag on)", () => {
     expect(budgetBox()).toHaveValue("50");
     expect(screen.getByRole("button", { name: "$50" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "$25" })).toHaveAttribute("aria-pressed", "false");
-    await ask(user, "baby");
+    await ask(user, "food");
     await screen.findByText("3 matches found");
-    expect(bodies).toEqual([{ text: "baby", budgetCents: 5000 }]);
+    expect(bodies).toEqual([{ text: "food", budgetCents: 5000 }]);
   });
 
   it("shows B's reason as plain text: markup stays literal", async () => {
@@ -198,12 +201,12 @@ describe("Match me box (landing page, flag on)", () => {
       ),
     );
     const { user } = await openLanding();
-    await ask(user, "diapers for babies");
+    await ask(user, PROMPT);
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("We couldn't find matches just now. Please try again.");
     await user.click(within(alert).getByRole("button", { name: "Retry" }));
     expect(await screen.findByText("3 matches found")).toBeInTheDocument();
-    expect(bodies).toEqual([{ text: "diapers for babies", budgetCents: 2500 }]);
+    expect(bodies).toEqual([{ text: PROMPT, budgetCents: 2500 }]);
   });
 
   it("Cancel aborts the request and goes back to the form", async () => {

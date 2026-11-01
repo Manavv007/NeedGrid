@@ -3,7 +3,7 @@ import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TileCard } from "@/features/tiles/TileCard";
-import { needs } from "@/mocks/fixtures";
+import { DEMO_NEEDS, needs } from "@/mocks/fixtures";
 
 // Date text depends on the clock, so it is pinned. Only Date is faked: React and Testing Library
 // keep their real timers. Fixture dates were built at module load (before this pin), so tests that
@@ -20,8 +20,8 @@ afterEach(() => {
 });
 
 const IDS = {
-  diapers4: "4c1f7a2e-9b3d-4e5f-8a6b-000000000101", // open, $14 left of $84
-  formula: "4c1f7a2e-9b3d-4e5f-8a6b-000000000102", // open with $15 held
+  diapers4: DEMO_NEEDS.fourteenLeft, // open, $14 left of $84
+  chicken: "4c1f7a2e-9b3d-4e5f-8a6b-000000000104", // open with $10 held
   toothpaste: "4c1f7a2e-9b3d-4e5f-8a6b-000000000106", // open, 1 donor
   peanutButter: "4c1f7a2e-9b3d-4e5f-8a6b-000000000105", // open, no product photo
   tuna: "4c1f7a2e-9b3d-4e5f-8a6b-000000000108", // topping_up, $5 more needed of $76
@@ -95,12 +95,12 @@ describe("TileCard", () => {
   });
 
   it("mentions money being paid right now in the progress bar", () => {
-    renderTile(card(IDS.formula));
+    renderTile(card(IDS.chicken));
     expect(screen.getByRole("progressbar")).toHaveAttribute(
       "aria-valuetext",
-      "$41 of $112 raised, $15 being paid now, $56 left",
+      "$30 of $66 raised, $10 being paid now, $26 left",
     );
-    expect(screen.getByText("$56 left")).toBeInTheDocument();
+    expect(screen.getByText("$26 left")).toBeInTheDocument();
   });
 
   it("uses the singular for one donor and a placeholder when there's no photo", () => {

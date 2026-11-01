@@ -14,8 +14,6 @@ const ORG_ROUTE = `${API}/api/orgs/:slug`;
 
 const STILL_NEEDED = [
   "Diapers, size 4",
-  "Infant formula, 12.4 oz",
-  "Baby wipes, unscented",
   "Canned chicken, 12.5 oz",
   "Peanut butter, 40 oz",
   "Canned tuna, 5 oz",
@@ -52,10 +50,10 @@ describe("Tile wall /o/:slug", () => {
       "Still needed",
       "Items funded",
     ]);
-    expect(screen.getAllByRole("definition").map((d) => d.textContent)).toEqual(["$532", "1", "8", "4"]);
+    expect(screen.getAllByRole("definition").map((d) => d.textContent)).toEqual(["$602", "1", "6", "6"]);
 
-    expect(screen.getByRole("tab", { name: /Still needed/, selected: true })).toHaveTextContent("Still needed · 8");
-    expect(screen.getByRole("tab", { name: /Funded/ })).toHaveTextContent("Funded · 3");
+    expect(screen.getByRole("tab", { name: /Still needed/, selected: true })).toHaveTextContent("Still needed · 6");
+    expect(screen.getByRole("tab", { name: /Funded/ })).toHaveTextContent("Funded · 5");
     expect(screen.getByRole("tab", { name: /Delivered/ })).toHaveTextContent("Delivered · 1");
     expect(tileTitles()).toEqual(STILL_NEEDED);
 
@@ -81,9 +79,15 @@ describe("Tile wall /o/:slug", () => {
 
     await userEvent.click(screen.getByRole("tab", { name: /Funded/ }));
     expect(screen.getByRole("tab", { name: /Funded/, selected: true })).toBeInTheDocument();
-    expect(tileTitles()).toEqual(["Kids' toothbrushes", "Women's socks", "Laundry detergent"]);
+    expect(tileTitles()).toEqual([
+      "Infant formula",
+      "Baby wipes",
+      "Kids' toothbrushes",
+      "Women's socks",
+      "Laundry detergent",
+    ]);
     expect(search(router)).toBe("?tab=funded");
-    expect(screen.getByRole("status")).toHaveTextContent("3 items funded");
+    expect(screen.getByRole("status")).toHaveTextContent("5 items funded");
 
     await userEvent.click(screen.getByRole("tab", { name: /Delivered/ }));
     expect(tileTitles()).toEqual(["Diapers, size 3"]);
@@ -94,7 +98,7 @@ describe("Tile wall /o/:slug", () => {
       await router.navigate(-1);
     });
     expect(screen.getByRole("tab", { name: /Funded/, selected: true })).toBeInTheDocument();
-    expect(tileTitles()).toHaveLength(3);
+    expect(tileTitles()).toHaveLength(5);
     expect(search(router)).toBe("?tab=funded");
   });
 
@@ -104,33 +108,44 @@ describe("Tile wall /o/:slug", () => {
 
     await userEvent.click(urgent);
     expect(urgent).toHaveAttribute("aria-pressed", "true");
-    expect(tileTitles()).toEqual(["Diapers, size 4", "Infant formula, 12.4 oz"]);
+    expect(tileTitles()).toEqual(["Diapers, size 4"]);
     expect(search(router)).toBe("?urgent=1");
-    expect(screen.getByRole("status")).toHaveTextContent("2 items still needed, urgent only");
+    expect(screen.getByRole("status")).toHaveTextContent("1 item still needed, urgent only");
 
     await userEvent.click(urgent);
     expect(urgent).toHaveAttribute("aria-pressed", "false");
     expect(tileTitles()).toEqual(STILL_NEEDED);
 
-    await userEvent.click(screen.getByRole("button", { name: "Baby" }));
-    expect(screen.getByRole("button", { name: "Baby" })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(screen.getByRole("button", { name: "Food" }));
+    expect(screen.getByRole("button", { name: "Food" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "false");
-    expect(tileTitles()).toEqual(["Diapers, size 4", "Infant formula, 12.4 oz", "Baby wipes, unscented"]);
-    expect(search(router)).toBe("?category=baby");
+    expect(tileTitles()).toEqual([
+      "Canned chicken, 12.5 oz",
+      "Peanut butter, 40 oz",
+      "Canned tuna, 5 oz",
+      "Rolled oats, 42 oz",
+    ]);
+    expect(search(router)).toBe("?category=food");
 
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Sort" }), "newest");
-    expect(tileTitles()).toEqual(["Baby wipes, unscented", "Infant formula, 12.4 oz", "Diapers, size 4"]);
-    expect(search(router)).toBe("?category=baby&sort=newest");
+    expect(tileTitles()).toEqual([
+      "Rolled oats, 42 oz",
+      "Peanut butter, 40 oz",
+      "Canned chicken, 12.5 oz",
+      "Canned tuna, 5 oz",
+    ]);
+    expect(search(router)).toBe("?category=food&sort=newest");
   });
 
   it("shows No items match with Clear filters when the filters leave nothing", async () => {
-    const { router } = await renderHarbor("?tab=funded&urgent=1");
+    // Nothing Harbor has funded is food.
+    const { router } = await renderHarbor("?tab=funded&category=food");
     expect(screen.getByRole("heading", { name: "No items match" })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Clear filters" }));
-    expect(tileTitles()).toHaveLength(3);
+    expect(tileTitles()).toHaveLength(5);
     expect(search(router)).toBe("?tab=funded");
-    expect(screen.getByRole("button", { name: "Urgent only" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("falls back to the defaults for invalid URL params", async () => {

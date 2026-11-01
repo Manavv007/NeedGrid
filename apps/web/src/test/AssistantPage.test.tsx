@@ -13,7 +13,7 @@ import { renderRoute } from "./render";
 
 const CHAT = "http://api.test/api/staff/agent/chat";
 const INVOICE_PROMPT = "Invoice Acme Hardware (sponsor@example.com) for the whole winter-coats list";
-const TITLE = "Invoice Acme Hardware for 3 items";
+const TITLE = "Invoice Acme Hardware for 4 items";
 const WINTER = "Winter coats, kids' size 8";
 
 afterEach(() => {
@@ -76,7 +76,7 @@ describe("Assistant: the invoice scene (mock mode, Room 12)", () => {
     expect(screen.queryByRole("list", { name: "Suggestions" })).not.toBeInTheDocument();
 
     // Tool lines finished with a check.
-    for (const summary of ["Looked up open needs · found 3 items", "Prepared an invoice for your approval"]) {
+    for (const summary of ["Looked up open needs · found 4 items", "Prepared an invoice for your approval"]) {
       expect(within(conversation()).getByText(summary).closest("p")).toHaveTextContent(`Done: ${summary}`);
     }
     // The same card in the chat and in Pending approvals.
