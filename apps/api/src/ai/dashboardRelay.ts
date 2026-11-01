@@ -99,89 +99,77 @@ export type RelayRes = z.infer<typeof RelayRes>;
 // ---------------------------------------------------------------------------------------------
 // JSON Schema → what Gemini accepts
 // ---------------------------------------------------------------------------------------------
+//
+// The Google provider sends tool schemas as `parametersJsonSchema` (Gemini's JSON Schema mode), which supports
+// $ref/$defs, anyOf, properties, additionalProperties, required and enum. So schemas are passed through with
+// references INTACT. An earlier version inlined every $ref: Studio's execute_query grew from 20 KB to 125 KB with 514
+// branches cut off as "nested too deeply", and the model couldn't build a valid query ("Expected an object").
 
 type Schema = Record<string, unknown>;
 const isSchema = (v: unknown): v is Schema => typeof v === "object" && v !== null && !Array.isArray(v);
 
-/** Keywords Gemini's function declarations reject or ignore. */
+/** Keywords outside Gemini's JSON Schema subset. */
 const DROP = new Set([
   "$schema",
-  "$id",
   "$comment",
-  "additionalProperties",
+  "not",
+  "if",
+  "then",
+  "else",
   "patternProperties",
   "propertyNames",
   "unevaluatedProperties",
   "unevaluatedItems",
   "dependentSchemas",
   "dependentRequired",
-  "if",
-  "then",
-  "else",
-  "not",
   "contains",
-  "prefixItems",
   "examples",
-  "default",
   "readOnly",
   "writeOnly",
   "deprecated",
 ]);
-const MAX_DEPTH = 12;
+/** Keys whose value is a map of name → schema. */
+const SCHEMA_MAPS = new Set(["properties", "$defs", "definitions"]);
+/** Keys whose value is a list of schemas. */
+const SCHEMA_LISTS = new Set(["anyOf", "oneOf", "allOf", "prefixItems"]);
 
 /** Studio's shape library marks "may be undefined" as an `anyOf` branch `{ not: {} }`. */
 const isUndefinedSentinel = (s: unknown) => isSchema(s) && Object.keys(s).length === 1 && isSchema(s.not);
 
 /**
- * Rewrites a JSON Schema 2020-12 (as Studio's tools emit) into the subset Gemini accepts: `$ref`s inlined from
- * `$defs` (recursion cut off at MAX_DEPTH), `const` → single-value `enum`, `oneOf` → `anyOf`, undefined sentinels
- * removed, non-string enums dropped (Gemini enums must be strings), unsupported keywords removed.
+ * Light rewrite of a JSON Schema 2020-12 (as Studio's tools emit) for Gemini's JSON Schema mode: `$ref`/`$defs`
+ * kept, `{ not: {} }` undefined sentinels removed from `anyOf`, `const` → single-value `enum`, `oneOf` → `anyOf`,
+ * unsupported keywords dropped, `required` limited to declared properties.
  */
-export function toGeminiSchema(schema: Schema, defs: Schema = {}, depth = 0): Schema {
-  const allDefs = isSchema(schema.$defs) ? { ...defs, ...schema.$defs } : defs;
-  if (depth > MAX_DEPTH) return { type: "object", description: "(nested too deeply to describe)" };
-
-  if (typeof schema.$ref === "string") {
-    const name = schema.$ref.replace(/^#\/(\$defs|definitions)\//, "");
-    const target = allDefs[name];
-    const { $ref: _ref, $defs: _defs, ...siblings } = schema;
-    const resolved = isSchema(target) ? toGeminiSchema(target, allDefs, depth + 1) : { type: "object" };
-    return typeof siblings.description === "string" ? { ...resolved, description: siblings.description } : resolved;
-  }
-
+export function toGeminiSchema(schema: Schema): Schema {
   const out: Schema = {};
   for (const [key, value] of Object.entries(schema)) {
-    if (DROP.has(key) || key === "$defs" || key === "definitions") continue;
+    if (DROP.has(key)) continue;
     if (key === "const") {
-      if (typeof value === "string") out.enum = [value];
-      else if (typeof value === "number" || typeof value === "boolean") out.type ??= typeof value;
-      continue;
-    }
-    if (key === "enum") {
-      if (Array.isArray(value) && value.every((v) => typeof v === "string")) out.enum = value;
-      continue;
-    }
-    if (key === "anyOf" || key === "oneOf") {
-      const branches = (Array.isArray(value) ? value : []).filter((b) => isSchema(b) && !isUndefinedSentinel(b));
-      const mapped = branches.map((b) => toGeminiSchema(b as Schema, allDefs, depth + 1));
-      if (mapped.length === 1) Object.assign(out, mapped[0]);
-      else if (mapped.length > 1) out.anyOf = mapped;
-      continue;
-    }
-    if (key === "allOf") {
-      for (const b of Array.isArray(value) ? value : []) {
-        if (isSchema(b)) Object.assign(out, toGeminiSchema(b, allDefs, depth + 1));
+      out.enum = [value];
+      if (
+        out.type === undefined &&
+        (typeof value === "string" || typeof value === "number" || typeof value === "boolean")
+      ) {
+        out.type = typeof value;
       }
       continue;
     }
-    if (key === "properties" && isSchema(value)) {
-      out.properties = Object.fromEntries(
-        Object.entries(value).map(([k, v]) => [k, isSchema(v) ? toGeminiSchema(v, allDefs, depth + 1) : v]),
-      );
+    if (SCHEMA_MAPS.has(key) && isSchema(value)) {
+      out[key] = Object.fromEntries(Object.entries(value).map(([k, v]) => [k, isSchema(v) ? toGeminiSchema(v) : v]));
       continue;
     }
-    if (key === "items" && isSchema(value)) {
-      out.items = toGeminiSchema(value, allDefs, depth + 1);
+    if (SCHEMA_LISTS.has(key) && Array.isArray(value)) {
+      const branches = value
+        .filter((b) => isSchema(b) && !isUndefinedSentinel(b))
+        .map((b) => toGeminiSchema(b as Schema));
+      const target = key === "oneOf" ? "anyOf" : key;
+      if (branches.length === 1 && (target === "anyOf" || target === "allOf")) Object.assign(out, branches[0]);
+      else if (branches.length > 0) out[target] = branches;
+      continue;
+    }
+    if ((key === "items" || key === "additionalProperties") && isSchema(value)) {
+      out[key] = toGeminiSchema(value);
       continue;
     }
     out[key] = value;
@@ -305,6 +293,124 @@ export function toModelMessages(items: ConversationItem[]): { messages: ModelMes
 // One turn
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * Models sometimes send a nested object argument as a JSON string (`{"query": "{\"variant\":...}"}`), which Studio
+ * rejects ("Expected an object"). A top-level string that is itself a JSON object or array is parsed back.
+ */
+export function repairArgs(input: unknown): unknown {
+  if (!isSchema(input)) return input;
+  const out: Schema = {};
+  for (const [k, v] of Object.entries(input)) {
+    if (typeof v === "string" && /^\s*[[{]/.test(v)) {
+      try {
+        const parsed: unknown = JSON.parse(v);
+        out[k] = typeof parsed === "object" && parsed !== null ? parsed : v;
+        continue;
+      } catch {
+        /* not JSON: keep the string */
+      }
+    }
+    out[k] = v;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Studio execute_query: fix the structural slips models make (seen live Oct 31)
+// ---------------------------------------------------------------------------------------------
+
+const AGG = new Set(["sum", "avg", "min", "max", "count", "countd", "first", "last"]);
+
+/** `"needs.title"` or `{ id, aggregation }` → `{ id }` (dimensions take no aggregation). */
+function dimensionField(f: unknown): unknown {
+  if (typeof f === "string") return { id: f };
+  if (isSchema(f) && typeof f.id === "string") return { id: f.id };
+  return f;
+}
+
+/** `"x"` → `{ id: "x" }`; an `aggregation` given next to `field` moves inside it. */
+function measureEntry(m: unknown): unknown {
+  if (!isSchema(m)) return m;
+  const { aggregation, ...rest } = m;
+  let field = rest.field;
+  if (typeof field === "string") field = { id: field };
+  if (isSchema(field) && typeof aggregation === "string" && AGG.has(aggregation) && field.aggregation === undefined) {
+    field = { ...field, aggregation };
+  }
+  return field === undefined ? m : { ...rest, field };
+}
+
+function filterEntry(f: unknown): unknown {
+  if (Array.isArray(f)) return f.map(filterEntry);
+  if (!isSchema(f)) return f;
+  const out: Schema = { ...f };
+  if (typeof out.field === "string") out.field = { id: out.field };
+  if (Array.isArray(out.conditions)) out.conditions = out.conditions.map(filterEntry);
+  return out;
+}
+
+function sortEntry(s: unknown): unknown {
+  if (!isSchema(s)) return s;
+  const out: Schema = { ...s };
+  if (out.direction === undefined && typeof out.order === "string") {
+    out.direction = String(out.order).toLowerCase().startsWith("asc") ? "asc" : "desc";
+    delete out.order;
+  }
+  if (typeof out.field === "string") out.field = { id: out.field };
+  return out;
+}
+
+/** Normalises an execute_query `query` towards Studio's apiQuery shape. Unknown shapes pass through untouched. */
+export function repairStudioQuery(q: unknown): unknown {
+  if (!isSchema(q)) return q;
+  const out: Schema = { ...q };
+  out.kind ??= "apiQuery";
+  out.variant ??= Array.isArray(out.projection) ? "projection" : "aggregation";
+  if (out.variant === "aggregation") {
+    // dimensions given at the top level, or axes as one object instead of a list
+    if (Array.isArray(out.dimensions) && out.axes === undefined) {
+      out.axes = [{ dimensions: out.dimensions }];
+      delete out.dimensions;
+    }
+    if (isSchema(out.axes)) out.axes = [out.axes];
+    if (Array.isArray(out.axes)) {
+      out.axes = out.axes.map((axis) => {
+        if (!isSchema(axis)) return axis;
+        // measures put inside an axis: Studio ignores them silently and returns rows without numbers
+        const { measures, ...rest } = axis;
+        if (Array.isArray(measures)) out.measures = [...(Array.isArray(out.measures) ? out.measures : []), ...measures];
+        return Array.isArray(rest.dimensions)
+          ? {
+              ...rest,
+              dimensions: rest.dimensions.map((d) =>
+                isSchema(d) && "field" in d ? { ...d, field: dimensionField(d.field) } : d,
+              ),
+            }
+          : Array.isArray(measures)
+            ? rest
+            : axis;
+      });
+    }
+    if (Array.isArray(out.measures)) out.measures = out.measures.map(measureEntry);
+  }
+  if (Array.isArray(out.projection)) {
+    out.projection = out.projection.map((p) =>
+      isSchema(p) && typeof p.field === "string" ? { ...p, field: { id: p.field } } : p,
+    );
+  }
+  if (out.filter !== undefined) out.filter = filterEntry(out.filter);
+  if (Array.isArray(out.sort)) out.sort = out.sort.map(sortEntry);
+  if (typeof out.limit === "number") out.limit = { count: out.limit };
+  return out;
+}
+
+/** Tool-specific repairs on top of repairArgs. */
+export function repairToolArgs(name: string, input: unknown): unknown {
+  const args = repairArgs(input);
+  if (name === "execute_query" && isSchema(args)) return { ...args, query: repairStudioQuery(args.query) };
+  return args;
+}
+
 /** Client tools only: provider-hosted ("provided"/"server") tools are dropped, never forwarded. */
 export function toToolSet(tools: RelayReq["tools"]): ToolSet {
   const set: ToolSet = {};
@@ -312,10 +418,84 @@ export function toToolSet(tools: RelayReq["tools"]): ToolSet {
     if (t.kind && t.kind !== "client") continue;
     set[t.name] = tool({
       description: t.description,
-      inputSchema: jsonSchema(toGeminiSchema(t.parameters) as Parameters<typeof jsonSchema>[0]),
+      inputSchema: jsonSchema(simplifyLargeSchema(toGeminiSchema(t.parameters)) as Parameters<typeof jsonSchema>[0]),
     });
   }
   return set;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Large schemas → JSON-text arguments
+// ---------------------------------------------------------------------------------------------
+//
+// Studio's execute_query / filter / configure tools have 20+ KB schemas of nested anyOf. Live (Oct 31) Gemini lost
+// its way in them: it returned calls named after schema paths ("ExecuteQueryQuery0Measures0Field1") and malformed
+// queries. For a schema above MAX_NATIVE_SCHEMA_CHARS, each top-level property is declared as a JSON-text string
+// whose description carries a compact grammar; repairArgs parses it back, and Studio validates the call as usual.
+
+export const MAX_NATIVE_SCHEMA_CHARS = 4_000;
+const GRAMMAR_DEPTH = 7;
+
+/** A one-line, TypeScript-like rendering of a schema: `{ id: <FieldId>, direction?: "asc"|"desc" }`. */
+export function compactSchema(s: unknown, depth = 0): string {
+  if (!isSchema(s)) return "any";
+  if (depth > GRAMMAR_DEPTH) return "…";
+  if (typeof s.$ref === "string") return `<${s.$ref.split("/").pop()}>`;
+  if (Array.isArray(s.enum)) return s.enum.map((v) => JSON.stringify(v)).join("|");
+  if (Array.isArray(s.anyOf)) return `(${s.anyOf.map((b) => compactSchema(b, depth + 1)).join(" | ")})`;
+  if (s.type === "array") return `${compactSchema(s.items, depth + 1)}[]`;
+  if (s.type === "object" || isSchema(s.properties)) {
+    const req = new Set(Array.isArray(s.required) ? (s.required as string[]) : []);
+    const props = Object.entries(isSchema(s.properties) ? s.properties : {}).map(
+      ([k, v]) => `${k}${req.has(k) ? "" : "?"}: ${compactSchema(v, depth + 1)}`,
+    );
+    return `{ ${props.join(", ")} }`;
+  }
+  if (Array.isArray(s.type)) return s.type.join("|");
+  return typeof s.type === "string" ? s.type : "any";
+}
+
+/** Names of `$defs` a schema refers to, followed transitively. */
+function referencedDefs(s: unknown, defs: Schema, seen = new Set<string>()): Set<string> {
+  if (Array.isArray(s)) s.forEach((x) => referencedDefs(x, defs, seen));
+  else if (isSchema(s)) {
+    if (typeof s.$ref === "string") {
+      const name = s.$ref.split("/").pop()!;
+      if (!seen.has(name)) {
+        seen.add(name);
+        referencedDefs(defs[name], defs, seen);
+      }
+    }
+    for (const [k, v] of Object.entries(s)) if (k !== "$defs") referencedDefs(v, defs, seen);
+  }
+  return seen;
+}
+
+export function simplifyLargeSchema(schema: Schema): Schema {
+  if (JSON.stringify(schema).length <= MAX_NATIVE_SCHEMA_CHARS || !isSchema(schema.properties)) return schema;
+  const defs = isSchema(schema.$defs) ? schema.$defs : {};
+  const properties = Object.fromEntries(
+    Object.entries(schema.properties).map(([name, prop]) => {
+      const used = [...referencedDefs(prop, defs)].sort();
+      const where = used.map((d) => `  <${d}> = ${compactSchema(defs[d])}`).join("\n");
+      const intro = isSchema(prop) && typeof prop.description === "string" ? `${prop.description}\n` : "";
+      return [
+        name,
+        {
+          type: "string",
+          description:
+            `${intro}Write this argument as JSON text (an object or array, not a quoted string of words) matching:\n` +
+            `${compactSchema(prop)}${where ? `\nwhere\n${where}` : ""}\n` +
+            `"x?:" means optional. Use exact field ids. Only these keys are allowed.`,
+        },
+      ];
+    }),
+  );
+  return {
+    type: "object",
+    properties,
+    ...(Array.isArray(schema.required) ? { required: schema.required } : {}),
+  };
 }
 
 export async function runDashboardTurn(req: RelayReq, abort?: AbortSignal): Promise<RelayRes> {
@@ -358,12 +538,18 @@ export async function runDashboardTurn(req: RelayReq, abort?: AbortSignal): Prom
         providerOptions,
       });
       const text = json && result.output !== undefined ? JSON.stringify(result.output) : result.text;
+      // A call to a tool that wasn't offered (Gemini sometimes names calls after schema paths) is dropped: Studio
+      // would only answer "unknown tool" and spend another round.
+      const offered = result.toolCalls.filter((c) => c.toolName in tools);
+      const dropped = result.toolCalls.length - offered.length;
+      if (dropped > 0) console.warn(`[ai] dashboard: dropped ${dropped} call(s) to tools that weren't offered`);
       return RelayRes.parse({
-        text,
-        toolCalls: result.toolCalls.map((c) => ({
+        text:
+          text || (dropped > 0 && offered.length === 0 ? "I couldn't form that request. Could you rephrase it?" : ""),
+        toolCalls: offered.map((c) => ({
           callId: c.toolCallId,
           name: c.toolName,
-          arguments: JSON.stringify(c.input ?? {}),
+          arguments: JSON.stringify(repairToolArgs(c.toolName, c.input ?? {})),
         })),
         finishReason: String(result.finishReason),
         usage:

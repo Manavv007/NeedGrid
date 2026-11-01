@@ -5,7 +5,19 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app";
 import { nextIp } from "../test/fixtures";
 import { DAILY_CAPS, resetDailyCaps } from "./dailyCap";
-import { DASHBOARD_GUARD, RelayRes, toGeminiSchema, toModelMessages, toToolSet } from "./dashboardRelay";
+import {
+  compactSchema,
+  DASHBOARD_GUARD,
+  MAX_NATIVE_SCHEMA_CHARS,
+  RelayRes,
+  repairArgs,
+  repairStudioQuery,
+  repairToolArgs,
+  simplifyLargeSchema,
+  toGeminiSchema,
+  toModelMessages,
+  toToolSet,
+} from "./dashboardRelay";
 import { setAiModels } from "./models";
 
 const usage = {
@@ -14,7 +26,7 @@ const usage = {
 };
 
 describe("toGeminiSchema", () => {
-  it("inlines $ref, maps const/oneOf, drops undefined sentinels and unsupported keywords", () => {
+  it("keeps $ref/$defs, maps const/oneOf, drops undefined sentinels and unsupported keywords", () => {
     const out = toGeminiSchema({
       $schema: "https://json-schema.org/draft/2020-12/schema",
       type: "object",
@@ -25,31 +37,173 @@ describe("toGeminiSchema", () => {
         k: { const: "aggregate" },
         n: { const: 3 },
         o: { oneOf: [{ type: "string" }, { type: "number" }] },
-        e: { enum: [1, 2] },
+        x: { type: "string", examples: ["a"], deprecated: true },
       },
       required: ["m", "k", "gone"],
-      $defs: { measure: { type: "object", properties: { f: { type: "string" } }, required: ["f"] } },
+      $defs: { measure: { type: "object", properties: { f: { const: "id" } }, required: ["f"] } },
     });
     expect(out).toEqual({
       type: "object",
+      additionalProperties: false,
       properties: {
-        m: { type: "object", properties: { f: { type: "string" } }, required: ["f"], description: "a measure" },
+        m: { $ref: "#/$defs/measure", description: "a measure" },
         g: { type: "string" },
-        k: { enum: ["aggregate"] },
-        n: { type: "number" },
+        k: { enum: ["aggregate"], type: "string" },
+        n: { enum: [3], type: "number" },
         o: { anyOf: [{ type: "string" }, { type: "number" }] },
-        e: {},
+        x: { type: "string" },
       },
       required: ["m", "k"],
+      $defs: { measure: { type: "object", properties: { f: { enum: ["id"], type: "string" } }, required: ["f"] } },
     });
   });
 
-  it("cuts off recursive $refs instead of looping", () => {
-    const out = toGeminiSchema({
+  it("leaves recursive $refs alone (no inlining, so no loop)", () => {
+    const schema = {
       $ref: "#/$defs/node",
       $defs: { node: { type: "object", properties: { child: { $ref: "#/$defs/node" } } } },
+    };
+    expect(toGeminiSchema(schema)).toEqual(schema);
+  });
+});
+
+describe("large schemas → JSON-text arguments", () => {
+  const big = {
+    type: "object",
+    properties: {
+      query: {
+        description: "The query.",
+        anyOf: [{ $ref: "#/$defs/agg" }, { type: "object", properties: { variant: { enum: ["projection"] } } }],
+      },
+    },
+    required: ["query"],
+    $defs: {
+      agg: {
+        type: "object",
+        properties: {
+          variant: { enum: ["aggregation"] },
+          measures: { type: "array", items: { $ref: "#/$defs/measure" } },
+          pad: { type: "string", description: "x".repeat(MAX_NATIVE_SCHEMA_CHARS) },
+        },
+        required: ["variant"],
+      },
+      measure: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+      unused: { type: "string" },
+    },
+  };
+
+  it("compactSchema renders a one-line grammar", () => {
+    expect(compactSchema(big.$defs.agg.properties.measures)).toBe("<measure>[]");
+    expect(compactSchema(big.$defs.measure)).toBe("{ id: string }");
+    expect(compactSchema({ type: "object", properties: { d: { enum: ["asc", "desc"] } } })).toBe(
+      '{ d?: "asc"|"desc" }',
+    );
+  });
+
+  it("small schemas pass through; large ones become string properties carrying the grammar of the defs they use", () => {
+    const small = { type: "object", properties: { a: { type: "number" } } };
+    expect(simplifyLargeSchema(small)).toBe(small);
+
+    const out = simplifyLargeSchema(big);
+    expect(Object.keys(out)).toEqual(["type", "properties", "required"]);
+    expect(out.required).toEqual(["query"]);
+    const query = (out.properties as Record<string, { type: string; description: string }>).query!;
+    expect(query.type).toBe("string");
+    expect(query.description).toMatch(/^The query\.\nWrite this argument as JSON text/);
+    expect(query.description).toContain('<agg> = { variant: "aggregation", measures?: <measure>[]');
+    expect(query.description).toContain("<measure> = { id: string }");
+    expect(query.description).not.toContain("<unused>");
+  });
+});
+
+describe("repairArgs / repairToolArgs", () => {
+  it("parses a top-level argument sent as JSON text; leaves other strings alone", () => {
+    expect(repairArgs({ query: '{"a":1}', list: "[1,2]", word: "hello", broken: "{nope" })).toEqual({
+      query: { a: 1 },
+      list: [1, 2],
+      word: "hello",
+      broken: "{nope",
     });
-    expect(JSON.stringify(out)).toContain("nested too deeply");
+    expect(repairArgs("x")).toBe("x");
+  });
+
+  it("only repairs the query of execute_query", () => {
+    expect(repairToolArgs("add_widget", { query: { dimensions: [] } })).toEqual({ query: { dimensions: [] } });
+    expect(repairToolArgs("execute_query", { query: "{}" })).toEqual({
+      query: { kind: "apiQuery", variant: "aggregation" },
+    });
+  });
+});
+
+describe("repairStudioQuery (slips Gemini made live, each checked against Studio's real execute_query)", () => {
+  const good = {
+    kind: "apiQuery",
+    variant: "aggregation",
+    axes: [{ dimensions: [{ field: { id: "needs.orgName" }, as: "charity" }] }],
+    measures: [{ field: { id: "needs.deliveredCount", aggregation: "sum" }, as: "delivered" }],
+    sort: [{ by: "delivered", direction: "desc" }],
+    limit: { count: 1 },
+  };
+
+  it("leaves a correct query as it is", () => {
+    expect(repairStudioQuery(good)).toEqual(good);
+  });
+
+  it("dimensions at the top level, with an aggregation → axes[0], aggregation dropped", () => {
+    expect(
+      repairStudioQuery({
+        variant: "aggregation",
+        dimensions: [{ field: { id: "needs.orgName", aggregation: "first" }, as: "charity" }],
+        measures: good.measures,
+        sort: good.sort,
+        limit: { count: 1 },
+      }),
+    ).toEqual(good);
+  });
+
+  it("axes as one object, fields as bare strings, aggregation beside field", () => {
+    expect(
+      repairStudioQuery({
+        axes: { dimensions: [{ field: "needs.orgName", as: "charity" }] },
+        measures: [{ field: "needs.deliveredCount", aggregation: "sum", as: "delivered" }],
+        sort: [{ by: "delivered", order: "DESC" }],
+        limit: 1,
+      }),
+    ).toEqual(good);
+  });
+
+  it("measures put inside an axis move to the top level", () => {
+    expect(
+      repairStudioQuery({
+        variant: "aggregation",
+        axes: { dimensions: good.axes[0]!.dimensions, measures: good.measures },
+        sort: good.sort,
+        limit: { count: 1 },
+      }),
+    ).toEqual({ ...good, measures: good.measures });
+  });
+
+  it("filter fields as bare strings, including nested conditions", () => {
+    const out = repairStudioQuery({
+      ...good,
+      filter: {
+        operator: "and",
+        conditions: [{ field: "allocations.month", operator: "equals", value: "2026-10" }],
+      },
+    }) as { filter: unknown };
+    expect(out.filter).toEqual({
+      operator: "and",
+      conditions: [{ field: { id: "allocations.month" }, operator: "equals", value: "2026-10" }],
+    });
+  });
+
+  it("projection fields as bare strings; non-objects pass through", () => {
+    expect(repairStudioQuery({ projection: [{ field: "needs.title" }] })).toEqual({
+      kind: "apiQuery",
+      variant: "projection",
+      projection: [{ field: { id: "needs.title" } }],
+    });
+    expect(repairStudioQuery("nope")).toBe("nope");
   });
 });
 
@@ -189,6 +343,55 @@ describe("POST /api/ai/dashboard-complete", () => {
     expect(body.finishReason).toBe("tool-calls");
     expect(seen.indexOf(DASHBOARD_GUARD.slice(0, 40))).toBeLessThan(seen.indexOf("Studio context"));
     expect(seen).toContain('"add_widget"');
+  });
+
+  it("drops calls to tools that weren't offered and returns execute_query arguments repaired", async () => {
+    const generate = (content: unknown[]) =>
+      new MockLanguageModelV4({
+        doGenerate: async () => ({
+          content: content as never,
+          finishReason: { unified: "tool-calls", raw: undefined },
+          usage,
+          warnings: [],
+        }),
+      });
+    const withQuery = {
+      ...turn,
+      tools: [{ name: "execute_query", description: "q", parameters: { type: "object", properties: {} } }],
+    };
+
+    setAiModels({
+      language: generate([
+        { type: "tool-call", toolCallId: "a", toolName: "ExecuteQueryQuery0Measures0Field1", input: "{}" },
+        {
+          type: "tool-call",
+          toolCallId: "b",
+          toolName: "execute_query",
+          input: JSON.stringify({ query: JSON.stringify({ dimensions: [{ field: "needs.orgName" }] }) }),
+        },
+      ]),
+    });
+    const body = RelayRes.parse((await post(withQuery)).json());
+    expect(body.toolCalls).toEqual([
+      {
+        callId: "b",
+        name: "execute_query",
+        arguments: JSON.stringify({
+          query: {
+            kind: "apiQuery",
+            variant: "aggregation",
+            axes: [{ dimensions: [{ field: { id: "needs.orgName" } }] }],
+          },
+        }),
+      },
+    ]);
+
+    setAiModels({
+      language: generate([{ type: "tool-call", toolCallId: "a", toolName: "not_a_tool", input: "{}" }]),
+    });
+    const only = RelayRes.parse((await post(withQuery)).json());
+    expect(only.toolCalls).toEqual([]);
+    expect(only.text).toBe("I couldn't form that request. Could you rephrase it?");
   });
 
   it("400 for a malformed turn; 413 over 200 KB", async () => {
