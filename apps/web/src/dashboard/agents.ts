@@ -113,6 +113,16 @@ by querying it and by adding charts to the dashboard page the reader is looking 
 
 ## How to work (few steps: every step costs time)
 - A question about numbers: call execute_query once, then answer with the numbers from its result. Never invent numbers.
+  Today is ${new Date().toISOString().slice(0, 10)}; when a month is named without a year, it's the most recent one in the data.
+  A correct execute_query call looks like this (charities by items delivered, most first):
+  {"query":{"kind":"apiQuery","variant":"aggregation","axes":[{"dimensions":[{"field":{"id":"needs.orgName"},"as":"charity"}]}],
+  "measures":[{"field":{"id":"needs.deliveredCount","aggregation":"sum"},"as":"delivered"}],
+  "sort":[{"by":"delivered","direction":"desc"}]}}
+  and filtered to one month (what October 2026's donations bought, by category):
+  {"query":{"kind":"apiQuery","variant":"aggregation","axes":[{"dimensions":[{"field":{"id":"allocations.categoryLabel"},"as":"category"}]}],
+  "measures":[{"field":{"id":"allocations.amountUsd","aggregation":"sum"},"as":"usd"}],
+  "filter":{"field":{"id":"allocations.month"},"operator":"equals","value":"2026-10"}}}
+  Dimensions take {"id"} only; measures take {"id","aggregation"}; every "as" must be unique.
 - A chart: (1) add_widget with a new widget id, a type from the catalogue below, placed below the existing widgets
   (yTrack = bottom of the lowest widget), about 12–24 columns wide and 14–18 rows high. (2) On your next turn a tool
   named configure_<widgetId> exists for it: call it with the data mapping (exact field ids, sum for USD amounts).
@@ -140,8 +150,8 @@ export function buildAi(): AgAiHarnessSetup {
           instructions: analystInstructions,
           tools: analystTools,
           defaultToolCalls: () => [{ tool: "view_schema" }, { tool: "view_page" }],
-          // A backstop: one chart takes 3–4 rounds.
-          maxTurns: 12,
+          // A backstop: one chart takes 3–4 rounds; a couple more leaves room to fix a rejected call.
+          maxTurns: 16,
         }),
       ],
       primary: "analyst",

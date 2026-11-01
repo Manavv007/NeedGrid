@@ -345,9 +345,25 @@ Where things go: **decisions** → this table. **Requests and action items for a
   offer. Our adapter posts one turn to `POST /api/ai/dashboard-complete` and gets `{ text, toolCalls, finishReason, usage,
   model }`. Not streaming keeps the free-tier model fallback working (a stream can't switch models once started).
 - **Studio's tool schemas are JSON Schema 2020-12** with `$ref/$defs`, `{ not: {} }` "undefined" sentinels inside
-  `anyOf`, `const`, `additionalProperties`. `toGeminiSchema` rewrites them for Gemini; verified live with a synthetic
-  schema of that shape (flash-lite called the tool with correct arguments). **Not yet verified against Studio's real
-  tools in a browser**: run the page, ask a question, and watch the API log for `[ai] dashboard failed`.
+  `anyOf`, `const`, `additionalProperties`. `toGeminiSchema` rewrites them lightly for Gemini (see the next bullet:
+  references are kept).
+- **"Could not run the query… Expected an object" ×7, then "took more steps than allowed" (Oct 31): a schema bug, not
+  billing.** Real Studio schemas (dump them in jsdom: `createStudio(div, { data, initialState, mode }, { modules:
+  [AgStudioAiModule] })`, then `api.getAiTools().executeQuery().schema()`) are 20–24 KB for execute_query and the
+  filter/configure tools. The old `toGeminiSchema` inlined every `$ref`: execute_query grew to 125 KB with 514 branches
+  cut off, and Gemini sent wrong shapes or calls named after schema paths (`ExecuteQueryQuery0Measures0Field1`). Fixes:
+  - The Google provider sends `parametersJsonSchema` (Gemini's JSON Schema mode), which understands `$ref/$defs`, so
+    references are now kept.
+  - A schema over 4000 chars is declared as per-property **JSON-text strings** whose description holds a one-line
+    grammar (`compactSchema`) of just the `$defs` it uses; `repairArgs` parses the text back.
+  - `repairStudioQuery` fixes the slips seen live: dimensions at the top level, `axes` as an object, measures inside an
+    axis (Studio silently ignores them and returns rows without numbers), `field` as a bare string, `aggregation`
+    beside `field`, aggregation on a dimension, `order: "DESC"`, `limit: 1`. Each repaired live call was run through
+    Studio's real `execute_query` in jsdom and succeeded.
+  - Calls to tools that weren't offered are dropped in the relay. The analyst prompt has today's date (Gemini assumed
+    "October" meant 2023) and two example queries that Studio accepts. `maxTurns` 12 → 16.
+  - Studio's `execute_query` in jsdom also throws harmless "Cannot set properties of null (setting 'direction')" errors
+    after the run (rendering, not the query).
 - **Gemini rejects a function call without a function response**, so `toModelMessages` answers every unanswered call.
 - **Bug found Oct 31: every dashboard turn answered 502 "The AI service is busy".** The route cancelled the Gemini call
   on the request's `"close"` event, and **Node 24 emits `req.raw` "close" as soon as the request body has been read**,
