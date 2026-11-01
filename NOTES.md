@@ -374,3 +374,28 @@ Where things go: **decisions** → this table. **Requests and action items for a
 - **Bundle:** the dashboard chunk is ~5.5 MB (1.5 MB gzip), all AG Studio, lazy-loaded on `/dashboard` only.
 - **Licence:** `VITE_AG_STUDIO_LICENSE` (web, public by design). Without it Studio runs with a watermark. Request the trial
   on Mon Nov 2 and give it to A for Render (`needgrid-web` env var, then redeploy).
+
+## 17. B: production seed + purchase plan (Nov 1)
+
+- **Production seeded without `--reset`** (it was migrated and empty: 2 migrations, 0 orgs). Plain `seed` only adds
+  orgs that have no needs, so it's safe on an empty database. 121 needs, 671 donations, 30 purchases, 18 deliveries;
+  `check:money` OK. 18 of 121 embeddings hit Gemini's per-minute limit; `seed --embeddings-only` a minute later added
+  them. Verified on https://needgrid-api.onrender.com: diapers 4 open with $14 left, formula funded, wipes ordered,
+  4 coats open, datasets 121/671/671 rows.
+- **Before seeding, check the target database**: print only the host (`[uri]$url).Host`), and count rows read-only.
+  The local `apps/api/.env` `DATABASE_URL` now points at **production** (`ep-calm-tree-…`); dev-b is no longer used
+  from this machine.
+- **Hero margin (live, Nov 1):** formula stored at $42.40 × 6, funded $275. Channel3 today: cvs.com $36.79 → new target
+  $239, surplus $36, flag "Price dropped 13%". The seed set the stored price 15% above the cached price, and the live
+  price has already moved 2 points. Recheck right before recording; reseed if the drop disappears.
+- **Purchase plan:** every number is deterministic (cheapest in-stock offer of the same product, computeTargetCents,
+  planPurchaseMoney, flags). The model writes only the explanation, and any `$` amount or `%` it quotes that isn't
+  in the facts makes the code use the plain explanation instead. Refresh failures, a product Channel3 no longer lists,
+  and `manual-` products all use the stored price with a flag. Another org's need answers 404, not 403.
+- **Testing against A's stubs:** `vi.mock("../core", async (importOriginal) => ({ ...(await importOriginal<typeof
+  core>()), createProposedPurchase: vi.fn() }))`. Lint forbids `typeof import("../core")` type annotations.
+- **PowerShell:** `pnpm … | Select-Object -First N` stops the pipeline early, so `$LASTEXITCODE` comes back -1 and the
+  summary lines are lost. Redirect to a log (`*> file`) and `Select-String` the log. A background `execute_pwsh` run
+  with `*>` never wrote its log; run long suites in the foreground with a long timeout.
+- **Pull before every push:** main moved twice during one test run (PRs #23, #24). Fetch and merge `origin/main`
+  right before pushing, then rerun the checks.
