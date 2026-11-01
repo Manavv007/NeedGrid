@@ -1,12 +1,13 @@
 import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DEMO_NEEDS } from "@/mocks/fixtures";
 import { mockDb } from "@/mocks/mockDb";
 import { renderRoute } from "./render";
 
 const ID = {
-  diapers4: "4c1f7a2e-9b3d-4e5f-8a6b-000000000101", // open, $14 left of $84, due tomorrow
-  formula: "4c1f7a2e-9b3d-4e5f-8a6b-000000000102", // Harbor's next most urgent
+  diapers4: DEMO_NEEDS.fourteenLeft, // open, $14 left of $84, due tomorrow
+  chicken: "4c1f7a2e-9b3d-4e5f-8a6b-000000000104", // Harbor's next most urgent
   tuna: "4c1f7a2e-9b3d-4e5f-8a6b-000000000108", // topping_up
   laundry: "4c1f7a2e-9b3d-4e5f-8a6b-000000000110", // funded
   socks: "4c1f7a2e-9b3d-4e5f-8a6b-000000000111", // ordered
@@ -145,7 +146,7 @@ describe("Need page /o/:slug/n/:needId", () => {
     renderRoute(harborNeed(ID.diapers4));
     expect(await screen.findByRole("region", { name: "Donors are paying for the rest right now" })).toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Choose your gift" })).not.toBeInTheDocument();
-    expect(await screen.findByRole("link", { name: /Fund Infant formula/ })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: /Fund Canned chicken/ })).toBeInTheDocument();
   });
 
   it("redirects a need opened under the wrong charity to its own address", async () => {
@@ -170,9 +171,9 @@ describe("Need page /o/:slug/n/:needId", () => {
     await screen.findByRole("heading", { level: 1, name: "Diapers, size 4" });
     await userEvent.click(screen.getByRole("button", { name: "$10" }));
     await act(async () => {
-      await router.navigate(harborNeed(ID.formula));
+      await router.navigate(harborNeed(ID.chicken));
     });
-    await screen.findByRole("heading", { level: 1, name: "Infant formula, 12.4 oz" });
+    await screen.findByRole("heading", { level: 1, name: "Canned chicken, 12.5 oz" });
     expect(screen.getByRole("button", { name: "$25", pressed: true })).toBeInTheDocument();
   });
 });

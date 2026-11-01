@@ -3,7 +3,8 @@
  * Every object is validated with its shared schema when this module loads, and the money rules are
  * checked too, so a contract change (or a typo here) breaks tests and the build immediately.
  *
- * Sample names and numbers come from the approved designs (Main, Landing, TileStates, ImpactPhone,
+ * B's seed is the source of truth for the demo scenes (`DEMO_NEEDS`, the seed's `HEROES`). Other
+ * sample names and numbers come from the approved designs (Main, Landing, TileStates, ImpactPhone,
  * PurchasePlan, StaffConsole). Dates are relative to the clock when this module loads (see `rel`),
  * so deadlines stay ahead, deliveries stay in the past, and the mocks never go stale.
  */
@@ -190,10 +191,39 @@ const ORG_SLUG: Record<OrgKey, string> = {
   room12: "room-12-readers",
 };
 
+/**
+ * The demo-video needs, one per scene, like `HEROES` in B's seed (apps/api/scripts/seed/catalog.ts).
+ * If the seed's heroes change, these change with them.
+ */
+export const DEMO_NEEDS = {
+  /** Harbor "Diapers, size 4": open with exactly $14 left (donation scene). */
+  fourteenLeft: "4c1f7a2e-9b3d-4e5f-8a6b-000000000101",
+  /** Harbor "Infant formula": funded; its stored price is above today's, so the plan has a surplus (purchase-plan scene). */
+  priceDrop: "4c1f7a2e-9b3d-4e5f-8a6b-000000000102",
+  /** Harbor "Baby wipes": ordered, waiting for its arrival photo; part of Sam's demo gift (delivery scene). */
+  ordered: "4c1f7a2e-9b3d-4e5f-8a6b-000000000103",
+  /** Room 12's four open "Winter coats, kids' size N" needs, sizes 6, 8, 10 and 12 (sponsor-invoice scene). */
+  coats: [
+    "4c1f7a2e-9b3d-4e5f-8a6b-000000000301",
+    "4c1f7a2e-9b3d-4e5f-8a6b-000000000302",
+    "4c1f7a2e-9b3d-4e5f-8a6b-000000000303",
+    "4c1f7a2e-9b3d-4e5f-8a6b-000000000313",
+  ],
+} as const;
+
+/** Today's price of the formula (B's cached Channel3 price for it). */
+const FORMULA_PRICE_TODAY_CENTS = 3679;
+
+/**
+ * The seed stores the purchase-plan need's price 15% above today's, rounded up to 10¢ (plan.ts), so
+ * the price check finds it cheaper. Integer maths: 3679 → 4240.
+ */
+const seedPriceDropMarkup = (todayCents: number) => Math.ceil((todayCents * 115) / 1000) * 10;
+
 const NEED_SEEDS: NeedSeed[] = [
   // ----- Harbor Food Bank (14) -----
   {
-    id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000101",
+    id: DEMO_NEEDS.fourteenLeft,
     org: "harbor",
     title: "Diapers, size 4",
     description: "Our most-asked-for item. Families with toddlers go through a pack a week.",
@@ -228,43 +258,44 @@ const NEED_SEEDS: NeedSeed[] = [
     updatedAt: rel(-1, "18:20"),
   },
   {
-    id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000102",
+    id: DEMO_NEEDS.priceDrop,
     org: "harbor",
-    title: "Infant formula, 12.4 oz",
+    title: "Infant formula",
     description: "Standard milk-based formula. We can't accept opened cans, so new ones make a big difference.",
     category: "baby",
     urgency: 3,
-    quantity: 6,
+    quantity: 2,
     unit: "can",
-    status: "open",
-    fundedCents: 4100,
-    heldCents: 1500,
+    status: "funded",
+    fundedCents: 9200,
+    heldCents: 0,
     donorCount: 5,
     product: {
-      title: "Similac 360 Total Care Infant Formula Powder, 12.4 oz",
-      retailer: "Target",
-      search: ["www.target.com", "similac 360 total care 12.4 oz"],
-      unitPriceCents: 1719,
+      title: "Similac Advance Infant Formula Powder, 30.8 oz",
+      retailer: "CVS",
+      search: ["www.cvs.com", "similac advance infant formula 30.8 oz"],
+      unitPriceCents: seedPriceDropMarkup(FORMULA_PRICE_TODAY_CENTS),
       packSize: null,
       image: "baby",
     },
-    deadlineAt: rel(2, "21:00"),
+    deadlineAt: null,
     createdAt: rel(-7, "14:06"),
+    fundedAt: rel(0, "09:12"),
     updatedAt: rel(0, "09:12"),
   },
   {
-    id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000103",
+    id: DEMO_NEEDS.ordered,
     org: "harbor",
-    title: "Baby wipes, unscented",
+    title: "Baby wipes",
     description: "Unscented wipes for sensitive skin.",
     category: "baby",
     urgency: 2,
     quantity: 6,
     unit: "pack of 72",
-    status: "open",
-    fundedCents: 2200,
+    status: "ordered",
+    fundedCents: 4100,
     heldCents: 0,
-    donorCount: 3,
+    donorCount: 4,
     product: {
       title: "Huggies Natural Care Sensitive Baby Wipes, Unscented, 72 Count",
       retailer: "Walmart",
@@ -273,9 +304,13 @@ const NEED_SEEDS: NeedSeed[] = [
       packSize: 72,
       image: "baby",
     },
-    deadlineAt: rel(4, "21:00"),
-    createdAt: rel(-7, "14:07"),
-    updatedAt: rel(-2, "16:40"),
+    deadlineAt: null,
+    createdAt: rel(-11, "10:05"),
+    fundedAt: rel(-4, "19:50"),
+    approvedAt: rel(-3, "13:40"),
+    orderedAt: rel(-3, "13:55"),
+    orderRef: "WMT-482-3910274",
+    updatedAt: rel(-3, "13:55"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000104",
@@ -898,11 +933,11 @@ const NEED_SEEDS: NeedSeed[] = [
     updatedAt: rel(-8, "10:00"),
   },
 
-  // ----- Room 12 Readers (12) -----
+  // ----- Room 12 Readers (13) -----
   {
-    id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000301",
+    id: DEMO_NEEDS.coats[0],
     org: "room12",
-    title: "Winter coats, kids' size 6–7",
+    title: "Winter coats, kids' size 6",
     description: "Several of our readers came to school in hoodies last week.",
     category: "clothing",
     urgency: 3,
@@ -913,9 +948,9 @@ const NEED_SEEDS: NeedSeed[] = [
     heldCents: 0,
     donorCount: 2,
     product: {
-      title: "Cat & Jack Kids' Long Puffer Jacket, Size 6/7",
+      title: "Cat & Jack Kids' Long Puffer Jacket, Size 6",
       retailer: "Target",
-      search: ["www.target.com", "cat and jack kids long puffer jacket 6/7"],
+      search: ["www.target.com", "cat and jack kids long puffer jacket size 6"],
       unitPriceCents: 3500,
       packSize: null,
       image: "clothing",
@@ -925,7 +960,7 @@ const NEED_SEEDS: NeedSeed[] = [
     updatedAt: rel(-1, "15:00"),
   },
   {
-    id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000302",
+    id: DEMO_NEEDS.coats[1],
     org: "room12",
     title: "Winter coats, kids' size 8",
     description: "Several of our readers came to school in hoodies last week.",
@@ -950,9 +985,9 @@ const NEED_SEEDS: NeedSeed[] = [
     updatedAt: rel(-3, "14:01"),
   },
   {
-    id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000303",
+    id: DEMO_NEEDS.coats[2],
     org: "room12",
-    title: "Winter coats, kids' size 10–12",
+    title: "Winter coats, kids' size 10",
     description: "Several of our readers came to school in hoodies last week.",
     category: "clothing",
     urgency: 3,
@@ -963,9 +998,9 @@ const NEED_SEEDS: NeedSeed[] = [
     heldCents: 1500,
     donorCount: 1,
     product: {
-      title: "Cat & Jack Kids' Long Puffer Jacket, Size 10/12",
+      title: "Cat & Jack Kids' Long Puffer Jacket, Size 10",
       retailer: "Target",
-      search: ["www.target.com", "cat and jack kids long puffer jacket 10/12"],
+      search: ["www.target.com", "cat and jack kids long puffer jacket size 10"],
       unitPriceCents: 3800,
       packSize: null,
       image: "clothing",
@@ -973,6 +1008,31 @@ const NEED_SEEDS: NeedSeed[] = [
     deadlineAt: rel(8, "22:00"),
     createdAt: rel(-3, "14:02"),
     updatedAt: rel(0, "11:00"),
+  },
+  {
+    id: DEMO_NEEDS.coats[3],
+    org: "room12",
+    title: "Winter coats, kids' size 12",
+    description: "Several of our readers came to school in hoodies last week.",
+    category: "clothing",
+    urgency: 3,
+    quantity: 3,
+    unit: "coat",
+    status: "open",
+    fundedCents: 0,
+    heldCents: 0,
+    donorCount: 0,
+    product: {
+      title: "Cat & Jack Kids' Long Puffer Jacket, Size 12",
+      retailer: "Target",
+      search: ["www.target.com", "cat and jack kids long puffer jacket size 12"],
+      unitPriceCents: 3800,
+      packSize: null,
+      image: "clothing",
+    },
+    deadlineAt: rel(8, "22:00"),
+    createdAt: rel(-3, "14:03"),
+    updatedAt: rel(-3, "14:03"),
   },
   {
     id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000304",
@@ -1412,28 +1472,30 @@ function offerFrom(seed: OfferSeed, image: string | null): PurchaseOffer {
 
 /**
  * Deterministic price checks, one per money outcome (planPurchaseMoney on the need's funded amount):
- * - Laundry detergent: cheaper, $95 raised vs $88 new cost → $7 surplus to the next need (demo scene).
+ * - Infant formula: today's price is the seed's stored price without its 15% markup, so it's
+ *   cheaper: $92 raised vs $80 new cost → $12 surplus to the next most urgent need (demo scene).
  * - Kids' toothbrushes: pricier, $38 raised vs $41 → a $3 gap, the tile goes back to donors.
  * - Enzyme cleaner: 10¢ cheaper, but the new cost still rounds to the $108 raised → exact.
  * - Diapers, size 4: cheaper once it's funded (PurchasePlan.dc.html).
- * Hand-written products (Snacks for reading club) are never refreshed: same price, exact.
+ * Needs without a check here (Laundry detergent) find the posted price: exact. Hand-written
+ * products (Snacks for reading club) are never refreshed: same price, exact.
  */
 const PRICE_CHECKS: PriceCheckSeed[] = [
   {
-    id: "4c1f7a2e-9b3d-4e5f-8a6b-000000000110",
-    unitPriceCents: 1349,
+    id: DEMO_NEEDS.priceDrop,
+    unitPriceCents: FORMULA_PRICE_TODAY_CENTS,
     alternatives: [
       {
-        title: "Gain Original Liquid Laundry Detergent, 88 fl oz",
-        retailer: "Walmart",
-        search: ["www.walmart.com", "gain original liquid detergent 88 oz"],
-        unitPriceCents: 1297,
+        title: "Similac Advance Infant Formula Powder, 20.6 oz",
+        retailer: "Walgreens",
+        search: ["www.walgreens.com", "similac advance infant formula 20.6 oz"],
+        unitPriceCents: 2399,
       },
       {
-        title: "Persil ProClean Original Liquid Detergent, 82.5 fl oz",
-        retailer: "Amazon",
-        search: ["www.amazon.com", "persil proclean original 82.5 oz"],
-        unitPriceCents: 1499,
+        title: "Enfamil NeuroPro Infant Formula Powder, 31.4 oz",
+        retailer: "Target",
+        search: ["www.target.com", "enfamil neuropro infant formula 31.4 oz"],
+        unitPriceCents: 4599,
       },
     ],
   },
@@ -1509,7 +1571,8 @@ export type ImpactRecord = {
 
 /**
  * Sam's gift (ImpactPhone.dc.html): $14 finished Diapers, size 3 (delivered, with a photo); the
- * other $25 overflowed to Women's socks (ordered, no photo yet).
+ * other $25 overflowed to Baby wipes (ordered, waiting for its arrival photo), so recording the wipes'
+ * delivery (the demo's delivery scene) shows up on Sam's impact page.
  */
 export const impactRecords: readonly ImpactRecord[] = [
   {
@@ -1519,7 +1582,7 @@ export const impactRecords: readonly ImpactRecord[] = [
     donatedAt: rel(-9, "15:42"),
     items: [
       { needId: "4c1f7a2e-9b3d-4e5f-8a6b-000000000112", amountCents: 1400, reason: "direct" },
-      { needId: "4c1f7a2e-9b3d-4e5f-8a6b-000000000111", amountCents: 2500, reason: "overflow" },
+      { needId: DEMO_NEEDS.ordered, amountCents: 2500, reason: "overflow" },
     ],
   },
 ];

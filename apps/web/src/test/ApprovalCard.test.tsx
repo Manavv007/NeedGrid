@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { Toaster } from "@/components/ui/sonner";
 import { ApprovalCard } from "@/features/assistant/ApprovalCard";
-import { ORG_IDS, sponsorInvoices } from "@/mocks/fixtures";
+import { DEMO_NEEDS, ORG_IDS, sponsorInvoices } from "@/mocks/fixtures";
 import { AMOUNTS_CHANGED_ERROR, mockDb } from "@/mocks/mockDb";
 import { server } from "@/mocks/node";
 import { createTestQueryClient } from "./render";
@@ -15,12 +15,9 @@ import { createTestQueryClient } from "./render";
 const API = "http://api.test";
 const APPROVE = `${API}/api/staff/agent/actions/:id/approve`;
 const ROOM12 = ORG_IDS.room12;
-const WINTER_IDS = [
-  "4c1f7a2e-9b3d-4e5f-8a6b-000000000301",
-  "4c1f7a2e-9b3d-4e5f-8a6b-000000000302",
-  "4c1f7a2e-9b3d-4e5f-8a6b-000000000303",
-];
-const TITLE = "Invoice Acme Hardware for 3 items";
+/** The invoice scene: Room 12's four open winter-coat needs. */
+const WINTER_IDS = [...DEMO_NEEDS.coats];
+const TITLE = "Invoice Acme Hardware for 4 items";
 
 beforeEach(() => {
   sessionStorage.setItem(STAFF_KEY_STORAGE, "room12-demo-2026");
@@ -194,7 +191,7 @@ describe("ApprovalCard: outcomes", () => {
     });
     expect(within(card).getByText("Approved and sent")).toBeInTheDocument();
     expect(
-      within(card).getByText("Sent to sponsor@example.com. When they pay, all 3 tiles fill up on their own."),
+      within(card).getByText("Sent to sponsor@example.com. When they pay, all 4 tiles fill up on their own."),
     ).toBeInTheDocument();
 
     const [invoice] = mockDb.listSponsorInvoices(ROOM12);
@@ -209,7 +206,7 @@ describe("ApprovalCard: outcomes", () => {
     await user.click(within(card).getByRole("button", { name: /Show the payment QR code for Acme Hardware/ }));
     const dialog = await screen.findByRole("dialog", { name: "Pay Room 12 Readers" });
     expect(dialog).toHaveAttribute("data-print", "sheet");
-    const summary = `Acme Hardware · 3 items · ${formatUsd(action.preview.totalCents ?? 0)}`;
+    const summary = `Acme Hardware · 4 items · ${formatUsd(action.preview.totalCents ?? 0)}`;
     expect(within(dialog).getByText(summary)).toBeInTheDocument();
     expect(within(dialog).getByRole("img", { name: `QR code to pay the invoice: ${summary}` })).toHaveAttribute(
       "src",
