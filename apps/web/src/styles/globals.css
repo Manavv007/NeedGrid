@@ -242,3 +242,67 @@ html[data-display="wall"] {
     scroll-behavior: auto !important;
   }
 }
+
+/*
+ * Printing while a dialog marked data-print="sheet" is open (the invoice QR code, C-9): only that
+ * dialog goes on paper, as a plain block, dark text on white. Radix portals the dialog straight into
+ * <body>, so everything else at that level (the app, the overlay) is hidden.
+ */
+@media print {
+  body:has([data-print="sheet"]) > :not([data-print="sheet"]):not(:has([data-print="sheet"])) {
+    display: none !important;
+  }
+
+  [data-print="sheet"] {
+    position: static !important;
+    inset: auto !important;
+    transform: none !important;
+    width: auto !important;
+    max-width: none !important;
+    margin: 2cm auto !important;
+    box-shadow: none !important;
+    animation: none !important;
+    background: var(--surface) !important;
+    color: var(--text) !important;
+  }
+
+  /*
+   * Printed flyers (C-10): the sheet fills one page (the toolbar sets `@page` to A4 or Letter with
+   * 12 mm margins), black on white. Nothing depends on a background colour: what's left is always
+   * in words, and progress bars get an outline instead of their fill.
+   */
+  html:has([data-flyer-sheet]),
+  body:has([data-flyer-sheet]) {
+    background: transparent !important;
+  }
+
+  [data-flyer-sheet] {
+    width: 100% !important;
+    aspect-ratio: auto !important;
+    overflow: hidden;
+    break-inside: avoid;
+    color: black !important;
+    background: transparent !important;
+  }
+
+  [data-flyer-sheet="letter"] {
+    height: calc(11in - 24mm);
+  }
+
+  [data-flyer-sheet="a4"] {
+    height: calc(297mm - 24mm);
+  }
+
+  [data-flyer-sheet] * {
+    color: inherit !important;
+    border-color: black !important;
+  }
+
+  [data-flyer-sheet] [role="progressbar"] {
+    border: 1px solid black;
+  }
+
+  [data-flyer-sheet] svg[role="img"] path {
+    fill: black;
+  }
+}

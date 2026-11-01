@@ -89,6 +89,32 @@ Warm, trustworthy, concrete. Real product photos are the hero; the UI stays calm
 - Impact page: arrival message box `--quote-bg` / `--quote-text`; the "Save your impact link" box there is the quiet
   variant, a dashed `--held` border (the thank-you page keeps the 2 px `--primary` one).
 
+## Used in C-9 (assistant, approval cards, money check): no new tokens
+
+- Approval card "Needs your approval": 2 px `--warning` border, header `--badge-warning-bg` / `--badge-warning-text`.
+  Executed: `--success` border, `--badge-success-*` header. Failed: `--danger` border, `--badge-danger-*` header.
+  Still running ("Approved, working…"): `--badge-info-text` border, `--badge-info-*` header. Rejected: the normal card
+  border, title in `--text-soft`. Every state says it in words with an icon, never colour alone.
+- "Created by NeedGrid" tag (actions the server proposed itself): `--surface` at 80% on the header, `--text-soft` text.
+- Chat: staff bubbles `--primary` with `--on-primary` text, assistant bubbles `--staff-bg`, error bubbles
+  `--badge-danger-bg` / `--badge-danger-text`, tool status lines `--muted` with a `--held` / `--primary` spinner and a
+  `--success` check.
+- Money check banner: `--success` ("Everything matches") or `--danger` ("N things don't match") with white text.
+- Printing the invoice QR dialog puts only that dialog on paper (`data-print="sheet"`, `@media print` in
+  `globals.css`): QR code, recipient and amount, `--text` on `--surface`.
+
+## Used in C-10 (invoices, Match me, QR flyers): no new tokens
+
+- Sponsor invoice status badges, always text + icon: Draft `--badge-low-*` (neutral), Sent `--badge-info-*`, Paid
+  `--badge-success-*`, Cancelled muted (`--surface` with a `--border-strong` outline and `--text-soft` text).
+- Match me box: `--staff-header` background, `--on-primary` heading, `--staff-header-link` labels and helper text,
+  white (`--surface`) inputs and "Find matches" button with `--staff-header` text. Focus rings are white on the dark box.
+  Inline errors are `--badge-danger-bg` / `--badge-danger-text` pills; "Too many tries" uses `--badge-warning-*`; the
+  "AI is resting" note uses `--badge-info-*`. Result cards: reason under "AI suggestion" on `--quote-bg` / `--quote-text`.
+- QR flyers on screen: a `--surface` sheet on `--placeholder`, tile borders `--text`, "left" amounts `--left-text`.
+  Printed (`[data-flyer-sheet]` in `globals.css`): black on white, progress bars outlined, nothing that needs a
+  background colour to be understood. The toolbar sets `@page` to A4 or Letter with 12 mm margins.
+
 ## Status badges (background / text)
 
 | Status | Background | Text | CSS variables |

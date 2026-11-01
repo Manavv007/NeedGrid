@@ -58,10 +58,16 @@ export function percentOf(part: number, whole: number): number {
 
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 const weekday = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" });
+const fullDateTime = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" });
 
 /** "Oct 24". Dates are shown in UTC so every viewer sees the same day as the server. */
 export function formatShortDate(iso: string): string {
   return shortDate.format(new Date(iso));
+}
+
+/** "Nov 3, 2026, 10:00 AM UTC": the exact moment behind a relative time (e.g. in a `title`). */
+export function formatFullDateTime(iso: string): string {
+  return `${fullDateTime.format(new Date(iso))} UTC`;
 }
 
 /** Deadlines: the weekday ("Fri") when it's within the next 6 days, otherwise "Nov 14". */

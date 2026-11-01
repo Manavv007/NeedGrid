@@ -1,5 +1,5 @@
 import { Id, type NeedDetailRes } from "@needgrid/shared";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Printer } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { Link, Navigate, useLocation, useParams, useSearchParams } from "react-router";
 import { ErrorState } from "@/components/ErrorState";
@@ -15,7 +15,8 @@ import { LiveStatus } from "@/features/live/LiveStatus";
 import { useLiveUpdates } from "@/features/live/useLiveUpdates";
 import { isDonatable } from "@/features/tiles/filterNeeds";
 import { ApiClientError } from "@/lib/api";
-import { needPath, orgPath } from "@/lib/links";
+import { features } from "@/lib/features";
+import { needFlyerPath, needPath, orgPath } from "@/lib/links";
 import { useNeed } from "@/lib/queries";
 import { useOrgStream } from "@/lib/sse";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
@@ -159,6 +160,16 @@ function NeedView({ detail }: { detail: NeedDetailRes }) {
           <Timeline need={need} events={timeline} variant={need.status === "delivered" ? "list" : "steps"} />
         </section>
       </div>
+
+      {features.flyers && takesDonations ? (
+        <Link
+          to={needFlyerPath(org.slug, need.id)}
+          className="inline-flex min-h-11 items-center gap-1.5 self-start text-sm font-semibold"
+        >
+          <Printer aria-hidden="true" className="size-4" />
+          Print a flyer for this item
+        </Link>
+      ) : null}
 
       {showBar ? <PhoneDonateBar need={need} onOpen={() => setSheetOpen(true)} /> : null}
       {panelInSheet ? (

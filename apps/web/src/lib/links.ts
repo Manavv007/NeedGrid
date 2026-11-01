@@ -13,6 +13,16 @@ export function needPath(slug: string, needId: string, opts: { donate?: boolean 
   return `${orgPath(slug)}/n/${encodeURIComponent(needId)}${opts.donate ? "?donate=1" : ""}`;
 }
 
+/** Printable QR flyer for one need. */
+export function needFlyerPath(slug: string, needId: string): string {
+  return `${needPath(slug, needId)}/flyer`;
+}
+
+/** The full address of an in-app path, for QR codes that a phone opens. */
+export function absoluteUrl(path: string): string {
+  return new URL(path, window.location.origin).href;
+}
+
 /** Thank-you page right after a payment. */
 export function thanksPath(impactToken: string): string {
   return `/thanks/${encodeURIComponent(impactToken)}`;
@@ -40,3 +50,20 @@ export function externalHttpUrl(raw: string): string | null {
     return null;
   }
 }
+
+/** Payment links (PayPal invoices) only ever open over https. Anything else → null. */
+export function httpsUrl(raw: string | null): string | null {
+  if (raw === null) return null;
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Staff: the sponsor invoices page. */
+export const STAFF_INVOICES_PATH = "/staff/invoices";
+
+/** Staff: the assistant. */
+export const STAFF_ASSISTANT_PATH = "/staff/assistant";

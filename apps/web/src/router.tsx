@@ -3,20 +3,23 @@ import { PublicLayout } from "@/components/layout/PublicLayout";
 import { RootLayout } from "@/components/layout/RootLayout";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { StaffGate } from "@/features/staff/StaffGate";
+import { AssistantPage } from "@/pages/AssistantPage";
 import { ImpactPage } from "@/pages/ImpactPage";
 import { IntakePage } from "@/pages/IntakePage";
+import { InvoicesPage } from "@/pages/InvoicesPage";
 import { LandingPage } from "@/pages/LandingPage";
+import { NeedFlyerPage } from "@/pages/NeedFlyerPage";
 import { NeedPage } from "@/pages/NeedPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
+import { OrgFlyerPage } from "@/pages/OrgFlyerPage";
 import { OrgPage } from "@/pages/OrgPage";
-import { PlaceholderPage } from "@/pages/PlaceholderPage";
 import { RouteErrorPage } from "@/pages/RouteErrorPage";
 import { StaffConsolePage } from "@/pages/StaffConsolePage";
 import { StaffLoginPage } from "@/pages/StaffLoginPage";
 import { StaffNeedPage } from "@/pages/StaffNeedPage";
 import { ThankYouPage } from "@/pages/ThankYouPage";
 
-/** Every route from brief §9. Placeholders name the task that builds the real screen. */
+/** Every route from brief §9. */
 export const routes: RouteObject[] = [
   {
     Component: RootLayout,
@@ -42,9 +45,9 @@ export const routes: RouteObject[] = [
           { path: "*", Component: NotFoundPage },
         ],
       },
-      // Printable flyers have no site chrome (P1).
-      { path: "o/:slug/flyer", element: <PlaceholderPage title="Flyer" task="C-11" /> },
-      { path: "o/:slug/n/:needId/flyer", element: <PlaceholderPage title="Need flyer" task="C-11" /> },
+      // Printable flyers (P1): a standalone print layout, no site header or footer.
+      { path: "o/:slug/flyer", Component: OrgFlyerPage },
+      { path: "o/:slug/n/:needId/flyer", Component: NeedFlyerPage },
       // A standalone staff page: outside the public layout and outside the gate.
       { path: "staff/login", Component: StaffLoginPage },
       {
@@ -55,8 +58,8 @@ export const routes: RouteObject[] = [
           { index: true, Component: StaffConsolePage },
           { path: "intake", Component: IntakePage },
           { path: "needs/:id", Component: StaffNeedPage },
-          { path: "assistant", element: <PlaceholderPage title="Assistant" task="C-9" /> },
-          { path: "invoices", element: <PlaceholderPage title="Invoices" task="C-10" /> },
+          { path: "assistant", Component: AssistantPage },
+          { path: "invoices", Component: InvoicesPage },
         ],
       },
     ],

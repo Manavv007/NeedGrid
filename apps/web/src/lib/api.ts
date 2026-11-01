@@ -21,7 +21,7 @@ export class ApiClientError extends Error {
 
 export type ApiOptions = { staff?: boolean; signal?: AbortSignal };
 
-const NETWORK_MESSAGE = "We couldn't reach NeedGrid. Check your connection and try again.";
+export const NETWORK_MESSAGE = "We couldn't reach NeedGrid. Check your connection and try again.";
 const CONTRACT_MESSAGE = "The server sent something we didn't expect. Please try again later.";
 
 /**
@@ -46,6 +46,12 @@ export function apiPatch<T>(path: string, body: unknown, schema: z.ZodType<T>, o
   return request("PATCH", path, body, schema, opts, 0);
 }
 
+/** The staff passcode header, when there is a passcode in this tab. */
+export function staffHeaders(): Record<string, string> {
+  const key = getStaffKey();
+  return key ? { [STAFF_KEY_HEADER]: key } : {};
+}
+
 async function request<T>(
   method: "GET" | "POST" | "PATCH",
   path: string,
@@ -54,12 +60,8 @@ async function request<T>(
   opts: ApiOptions,
   networkRetries: number,
 ): Promise<T> {
-  const headers: Record<string, string> = { accept: "application/json" };
+  const headers: Record<string, string> = { accept: "application/json", ...(opts.staff ? staffHeaders() : {}) };
   if (body !== undefined) headers["content-type"] = "application/json";
-  if (opts.staff) {
-    const key = getStaffKey();
-    if (key) headers[STAFF_KEY_HEADER] = key;
-  }
 
   let res: Response;
   try {
@@ -76,21 +78,9 @@ async function request<T>(
     throw new ApiClientError(0, "NETWORK", NETWORK_MESSAGE);
   }
 
+  if (!res.ok) throw await responseError(res, opts);
+
   const json = await readJson(res);
-
-  if (!res.ok) {
-    if (res.status === 401 && opts.staff) {
-      clearStaffKey();
-      notifyUnauthorized();
-    }
-    const apiError = ApiError.safeParse(json);
-    if (apiError.success) {
-      const { code, message, details } = apiError.data.error;
-      throw new ApiClientError(res.status, code, message, details);
-    }
-    throw new ApiClientError(res.status, fallbackCode(res.status), `Request failed (${res.status}).`);
-  }
-
   const parsed = schema.safeParse(json);
   if (!parsed.success) {
     // A contract bug: report it to the endpoint's owner instead of patching around it in the UI.
@@ -100,6 +90,24 @@ async function request<T>(
     throw new ApiClientError(res.status, "INTERNAL", CONTRACT_MESSAGE, parsed.error.issues);
   }
   return parsed.data;
+}
+
+/**
+ * A non-2xx response as an ApiClientError (the server's `ApiError` body when it sent one). A 401 on a
+ * staff request clears the passcode and sends the user to sign in.
+ */
+export async function responseError(res: Response, opts: Pick<ApiOptions, "staff"> = {}): Promise<ApiClientError> {
+  const json = await readJson(res);
+  if (res.status === 401 && opts.staff) {
+    clearStaffKey();
+    notifyUnauthorized();
+  }
+  const apiError = ApiError.safeParse(json);
+  if (apiError.success) {
+    const { code, message, details } = apiError.data.error;
+    return new ApiClientError(res.status, code, message, details);
+  }
+  return new ApiClientError(res.status, fallbackCode(res.status), `Request failed (${res.status}).`);
 }
 
 async function readJson(res: Response): Promise<unknown> {

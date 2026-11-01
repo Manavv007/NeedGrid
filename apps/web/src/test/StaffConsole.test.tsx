@@ -3,6 +3,8 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it } from "vitest";
+import { ORG_IDS } from "@/mocks/fixtures";
+import { mockDb } from "@/mocks/mockDb";
 import { server } from "@/mocks/node";
 import { renderRoute } from "./render";
 
@@ -44,6 +46,20 @@ describe("Staff console /staff", () => {
       "/staff?tab=ordered",
     );
     expect(within(waiting).queryByText("Money action to approve")).not.toBeInTheDocument();
+  });
+
+  it("shows a money action waiting for approval, linking to the assistant", async () => {
+    const proposed = mockDb.proposeInvoice(ORG_IDS.harbor, {
+      needIds: ["4c1f7a2e-9b3d-4e5f-8a6b-000000000101"],
+      recipientEmail: "sponsor@example.com",
+    });
+    expect(proposed.kind).toBe("ok");
+    renderRoute("/staff");
+    const waiting = await screen.findByRole("region", { name: "Waiting on you" });
+    expect(await within(waiting).findByRole("link", { name: /1 Money action to approve/ })).toHaveAttribute(
+      "href",
+      "/staff/assistant",
+    );
   });
 
   it("Open includes needs topping up; rows show quantity, money and donors", async () => {
