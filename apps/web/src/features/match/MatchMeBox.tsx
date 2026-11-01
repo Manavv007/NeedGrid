@@ -175,11 +175,11 @@ function BudgetField({ value, onChange, error, disabled }: FieldProps) {
   const id = useId();
   const budget = checkBudget(value);
   return (
-    <div className="flex min-w-0 flex-[1_1_220px] flex-col gap-1.5 sm:flex-[0_1_260px]">
+    <div className="flex min-w-0 flex-[1_1_220px] flex-col gap-1.5 sm:flex-none">
       <label htmlFor={id} className="text-[13px] font-semibold text-staff-header-link">
         Your budget
       </label>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <div
           className={cn(
             "flex h-12.5 w-28 shrink-0 items-center gap-1 rounded-[10px] bg-surface px-3 text-base text-foreground focus-within:outline-3 focus-within:outline-offset-2 focus-within:outline-white",
@@ -200,7 +200,7 @@ function BudgetField({ value, onChange, error, disabled }: FieldProps) {
             className="w-full min-w-0 border-0 bg-transparent outline-none"
           />
         </div>
-        <div role="group" aria-label="Quick budgets" className="flex gap-1.5">
+        <div role="group" aria-label="Quick budgets" className="flex shrink-0 gap-1.5">
           {BUDGET_CHIPS.map((cents) => (
             <button
               key={cents}
@@ -209,7 +209,7 @@ function BudgetField({ value, onChange, error, disabled }: FieldProps) {
               aria-pressed={budget.ok && budget.cents === cents}
               onClick={() => onChange(String(cents / 100))}
               className={cn(
-                "h-12.5 min-w-11 cursor-pointer rounded-[10px] border px-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-60",
+                "h-12.5 min-w-11 shrink-0 cursor-pointer rounded-[10px] border px-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-60",
                 budget.ok && budget.cents === cents
                   ? "border-surface bg-surface text-staff-header"
                   : "border-staff-header-link/60 bg-transparent text-primary-foreground hover:bg-white/10",
