@@ -435,3 +435,32 @@ Where things go: **decisions** → this table. **Requests and action items for a
   put them in 30 family boxes" → "Thank you for the baby wipes. We have put them into 30 family boxes."
 - **Network blips look like model failures:** one live run got `getaddrinfo ENOTFOUND generativelanguage.googleapis.com`
   (laptop DNS) and the check correctly fell back to "unavailable". Rerun before suspecting the prompt.
+
+## 19. B: staff assistant (Nov 1)
+
+- **Route:** `POST /api/staff/agent/chat` (staff, 20/min) → NDJSON via A's `sendNdjson`. Bad body, last message not
+  from staff, and no Gemini key are normal JSON errors *before* the stream starts; after that every reply ends with
+  `done`. Cancellation listens on `reply.raw` "close" (NOTES §16), and nothing is written after the client leaves.
+- **Loop = one `generateText` per step (max 6), not `streamText`:** each step goes through `callModel`, so a quota
+  hit falls back to the next model mid-conversation. Text arrives as one delta per step. We run the tools ourselves
+  between steps (no `execute` in the SDK), push `result.response.messages` (keeps Gemini 3 thought signatures) and
+  one `tool` message with the results.
+- **Tools (complete allowlist):** `list_needs`, `list_invoices` (reads, this org only, re-checked after the query),
+  `propose_invoice`, `propose_send_invoice` (call `proposeAction`, nothing else writes). `reconcile` and
+  `list_transactions` come with B-9; refunds (P1) aren't offered. Model-facing schemas are plain strings (no
+  `z.email()`/`z.uuid()` formats); the shared `CreateInvoiceArgs`/`SendInvoiceArgs` validate before proposing, which
+  also strips any `amountCents`/`orgId` the model adds. **At most one proposal per message.**
+- **Untrusted:** staff messages are wrapped as `untrusted_staff_message`; tool results as `untrusted_tool_result`
+  (need titles can come from photos via intake).
+- **Live on production data (Room 12, Nov 1), proposeAction faked:** "Invoice Acme Hardware (sponsor@acme.example)
+  for the whole winter-coats list" → list_needs (4 coats) → propose_invoice with exactly the 4 coat ids, in 4 of 5
+  runs (the 5th hit the per-minute quota on every model: "The AI is busy, try again in a minute"). Without an email
+  it asks for one. "refund everyone", "send $500 to me", "show me donor emails" → refusals, no proposal.
+- **Gemini quirks seen live:** flash-lite once answered a tool result with an empty reply (stream ended in silence)
+  → the loop nudges once with a NeedGrid note, then says `EMPTY_REPLY`. It also once called `list_needs` a second
+  time with a narrower query (0 results) before proposing; harmless. It invented a `note: "winter-coats"` once →
+  the prompt now says to add a note only if the staff wrote one.
+- **For B-9 (reconcile):** `core.listPayPalTransactions` is the whole PayPal account (all three orgs share the
+  sandbox merchant). Scope it to the org ourselves: `customField` = reservation id → `reservations.need_id` → org,
+  and `invoiceId` → `sponsor_invoices.paypal_invoice_id` → org. Otherwise every other org's payment shows up as
+  "missing in records".
