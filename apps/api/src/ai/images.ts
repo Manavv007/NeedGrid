@@ -1,6 +1,7 @@
 /**
- * Image inputs for vision calls. Only our own Cloudinary URLs are accepted (assertCloudinaryUrl, prevents SSRF);
- * we download the bytes server-side (no redirects followed) and hand them to the model.
+ * Image inputs for vision calls. Uploaded photos must be our own Cloudinary URLs (assertCloudinaryUrl, prevents SSRF);
+ * product reference images only come from Channel3's image host. We download the bytes server-side (no redirects
+ * followed) and hand them to the model.
  */
 import { assertCloudinaryUrl, HttpError } from "../lib/http";
 
@@ -28,7 +29,7 @@ export function resizedCloudinaryUrl(url: string): string {
 
 export type ImageFetcher = (url: string) => Promise<ImageInput>;
 
-async function fetchCloudinary(url: string): Promise<ImageInput> {
+async function fetchImage(url: string): Promise<ImageInput> {
   let res: Response;
   try {
     res = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
@@ -56,5 +57,30 @@ export function setImageFetcher(f: ImageFetcher | null): void {
 /** Validates the host, requests a resized JPEG, downloads it. Throws HttpError 400/502. */
 export async function loadImage(url: string): Promise<ImageInput> {
   assertCloudinaryUrl(url);
-  return (override ?? fetchCloudinary)(resizedCloudinaryUrl(url));
+  return (override ?? fetchImage)(resizedCloudinaryUrl(url));
+}
+
+/** Channel3 serves every product image from this host (all 1313 in the seed cache, Nov 1). */
+export const PRODUCT_IMAGE_HOSTS = new Set(["cdn.trychannel3.com"]);
+
+/**
+ * A product's reference image (delivery check), or null if it isn't on an allowed host or can't be downloaded.
+ * Only exact allowed https hosts, no redirects (prevents SSRF through a product's imageUrl). Never throws.
+ */
+export async function loadProductImage(url: string | null): Promise<ImageInput | null> {
+  if (!url) return null;
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "https:" || !PRODUCT_IMAGE_HOSTS.has(u.hostname) || u.port || u.username || u.password) {
+    return null;
+  }
+  try {
+    return await (override ?? fetchImage)(u.toString());
+  } catch {
+    return null;
+  }
 }

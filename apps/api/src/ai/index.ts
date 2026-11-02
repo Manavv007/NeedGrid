@@ -24,7 +24,5 @@ export async function embedNeedText(
   }
 }
 
-/** Warm 2-line donor update from a staff note. Must never throw: return the input on failure. (Real version: B-7.) */
-export async function writeImpactNote(staffNote: string, _needTitle: string): Promise<string> {
-  return staffNote;
-}
+/** Warm 2-sentence donor update from a staff note. Never throws: returns the input on failure (ai/delivery.ts). */
+export { writeImpactNote } from "./delivery";
