@@ -2,6 +2,7 @@
 // and never edits it. Staff routes use `preHandler: app.requireStaff` + getStaffOrg(req);
 // rate limits use `config: { rateLimit: { max, timeWindow } }`.
 import type { FastifyPluginAsync } from "fastify";
+import { assistantRoutes } from "./routes/assistant";
 import { dashboardRoutes } from "./routes/dashboard";
 import { dashboardAiRoutes } from "./routes/dashboardAi";
 import { deliveryRoutes } from "./routes/delivery";
@@ -12,7 +13,8 @@ export const aiPlugin: FastifyPluginAsync = async (app) => {
   await app.register(intakeRoutes);
   await app.register(purchasePlanRoutes);
   await app.register(deliveryRoutes);
+  await app.register(assistantRoutes);
   await app.register(dashboardRoutes);
   await app.register(dashboardAiRoutes);
-  // Still to come: POST /api/staff/agent/chat, POST /api/match
+  // Still to come: POST /api/match (B-9)
 };
