@@ -415,3 +415,23 @@ Where things go: **decisions** → this table. **Requests and action items for a
   with `*>` never wrote its log; run long suites in the foreground with a long timeout.
 - **Pull before every push:** main moved twice during one test run (PRs #23, #24). Fetch and merge `origin/main`
   right before pushing, then rerun the checks.
+
+## 18. B: proof of delivery (Nov 1)
+
+- **Routes:** `POST /api/staff/needs/:id/delivery` (staff, 10/min) and `POST /api/staff/deliveries/:id/confirm`
+  (staff, 30/min) in `ai/routes/delivery.ts`; `core.recordDelivery` / `confirmDelivery` are A's (Nov 3), mocked in
+  `ai/delivery.test.ts`. A delivery needs review when the check didn't run or scored < `DELIVERY_MATCH_THRESHOLD`
+  (0.6). Never auto-approved on failure: score 0 + the exact notes "Automatic check unavailable; please confirm."
+- **Product reference image:** Channel3's `imageUrl` is a third-party URL, so downloading it is an SSRF risk. Every
+  product image in the seed cache (1313) is on `cdn.trychannel3.com`, so only that exact https host is fetched
+  (`loadProductImage`, no redirects, no port); anything else → the check runs on the title alone. AI SDK file parts
+  with a URL are downloaded by our server, not by Google, so passing the URL to the model isn't safer.
+- **Live, Nov 1:** our demo store-aisle photo (Huggies wipes on a shop shelf with price tags) scored **0.9** as proof
+  that wipes arrived. A shop shelf identifies the product but doesn't prove delivery → the model now also returns
+  `retailDisplay`, and a retail photo is capped at 0.5 (needs review). After the change: shelf 0.5 "looks like a store
+  shelf", handwritten list 0. No real arrival photo has been tested yet: take one for the wipes before the demo.
+- **Impact note:** 2 sentences from the staff note + item title only; `!` → `.`; any number not in the input, an
+  empty or over-long reply, or a failure returns the staff text unchanged. Live: "the wipes came in this morning, we
+  put them in 30 family boxes" → "Thank you for the baby wipes. We have put them into 30 family boxes."
+- **Network blips look like model failures:** one live run got `getaddrinfo ENOTFOUND generativelanguage.googleapis.com`
+  (laptop DNS) and the check correctly fell back to "unavailable". Rerun before suspecting the prompt.
