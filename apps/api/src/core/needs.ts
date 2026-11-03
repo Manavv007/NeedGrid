@@ -11,6 +11,7 @@ import {
   MIN_DONATION_CENTS,
   NeedCard,
   OrgPublic,
+  planPurchaseMoney,
   ProductSnapshot,
   PurchaseView,
   type Category,
@@ -19,6 +20,7 @@ import {
   type OrgStats,
   type PatchNeedReq,
   type PublishNeedReq,
+  type PurchasePlanSummary,
   type TimelineEvent,
 } from "@needgrid/shared";
 import { and, asc, desc, eq, gt, inArray, ne, notInArray, sql, type SQL } from "drizzle-orm";
@@ -73,6 +75,13 @@ const donorCountSql = sql<number>`(
   ) d
 )::int`;
 
+/** Arrival photo donors may see: delivered needs only, latest delivery that passed the check or was confirmed. */
+const deliveryPhotoSql = sql<string | null>`case when ${needs.status} = 'delivered' then (
+  select d.photo_url from deliveries d
+  where d.need_id = ${needs.id} and (d.needs_review = false or d.confirmed_at is not null)
+  order by d.created_at desc limit 1
+) end`;
+
 /** "Most urgent" ordering (AGENT_A_BACKEND.md §5.2 comment on URGENCY_MIN). */
 export const mostUrgentOrder: SQL[] = [
   desc(needs.urgency),
@@ -99,6 +108,7 @@ const cardColumns = {
   deadlineAt: needs.deadlineAt,
   createdAt: needs.createdAt,
   updatedAt: needs.updatedAt,
+  deliveryPhotoUrl: deliveryPhotoSql,
 };
 
 function needCardQuery(ex: Executor) {
@@ -129,6 +139,7 @@ function toNeedCard(r: CardRow): NeedCard {
     deadlineAt: isoOrNull(r.deadlineAt),
     createdAt: iso(r.createdAt),
     updatedAt: iso(r.updatedAt),
+    deliveryPhotoUrl: r.deliveryPhotoUrl ?? null,
   });
 }
 
@@ -410,10 +421,30 @@ export async function getStaffNeedDetail(orgId: string, needId: string) {
   return {
     need: card!,
     alternatives: need.alternatives.map((a) => ProductSnapshot.parse(a)),
-    purchases: purchaseRows.map(toPurchaseView),
+    purchases: await withPlans(purchaseRows.map(toPurchaseView), card!),
     delivery: deliveryRows[0] ? toDeliveryView(deliveryRows[0]) : null,
     timeline,
   };
+}
+
+/**
+ * Plan summary for a proposed purchase, recomputed from current data (nothing stored): the price compared with the
+ * product donors funded, and planPurchaseMoney(funded, newTarget). For a surplus, nextNeed is looked up fresh.
+ */
+export async function planSummary(p: PurchaseView, card: NeedCard, ex: Executor = db): Promise<PurchasePlanSummary> {
+  const oldPrice = card.product?.unitPriceCents ?? p.offer.unitPriceCents;
+  const priceChange =
+    p.offer.unitPriceCents < oldPrice ? "cheaper" : p.offer.unitPriceCents > oldPrice ? "pricier" : "same";
+  const m = planPurchaseMoney(card.fundedCents, p.newTargetCents);
+  const money = m.kind === "surplus" ? { ...m, nextNeed: await getNextMostUrgentNeed(card.orgId, card.id, ex) } : m;
+  return { priceChange, money };
+}
+
+/** `plan` filled for proposed purchases, null for the rest. */
+export async function withPlans(views: PurchaseView[], card: NeedCard): Promise<PurchaseView[]> {
+  return Promise.all(
+    views.map(async (v) => ({ ...v, plan: v.status === "proposed" ? await planSummary(v, card) : null })),
+  );
 }
 
 export async function listStaffNeeds(orgId: string, status?: NeedStatus): Promise<NeedCard[]> {

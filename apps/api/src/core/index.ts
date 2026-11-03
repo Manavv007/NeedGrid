@@ -3,13 +3,14 @@
  * Signatures are a contract (AGENT_A_BACKEND.md §7.2): don't change them without telling B.
  *
  * Status:
- *   Implemented (Phase 2): getNeedCard, getNeedCards, listDonatableNeeds, getNextMostUrgentNeed,
- *                          setNeedEmbedding, publishNeedUpdated (in-process fan-out; SSE route in Phase 3)
+ *   Implemented: getNeedCard, getNeedCards, listDonatableNeeds, getNextMostUrgentNeed, setNeedEmbedding,
+ *                publishNeedUpdated, createProposedPurchase, recordDelivery, confirmDelivery
  *   Stubs that throw "not implemented" until:
- *     Phase 6 (Mon Nov 2): createProposedPurchase
- *     Phase 7 (Tue Nov 3): recordDelivery, confirmDelivery, proposeAction, listPayPalTransactions, listRecordedDonations
+ *     Phase 7 (Tue Nov 3): proposeAction, listPayPalTransactions, listRecordedDonations
  */
 import type { AgentAction, DeliveryView, MoneyTool, NeedCard, PurchaseOffer, PurchaseView } from "@needgrid/shared";
+import * as purchasesCore from "../money/purchases";
+import * as deliveriesCore from "./deliveries";
 import * as needsCore from "./needs";
 
 function notImplemented(name: string): never {
@@ -40,17 +41,17 @@ export async function setNeedEmbedding(needId: string, embedding: number[]): Pro
 }
 
 /** Inserts a purchases row (status proposed) and marks older proposed rows for that need `superseded`. Need must be `funded`. Computes newTargetCents itself. */
-export async function createProposedPurchase(_input: {
+export async function createProposedPurchase(input: {
   needId: string;
   offer: PurchaseOffer;
   explanation: string;
   flags: string[];
 }): Promise<PurchaseView> {
-  return notImplemented("createProposedPurchase");
+  return purchasesCore.createProposedPurchase(input);
 }
 
 /** Inserts a delivery row. If !needsReview → need becomes `delivered` (+ delivered_at) and SSE is published. Need must be `ordered`. */
-export async function recordDelivery(_input: {
+export async function recordDelivery(input: {
   needId: string;
   photoUrl: string;
   matchScore: number;
@@ -58,15 +59,16 @@ export async function recordDelivery(_input: {
   needsReview: boolean;
   message: string | null;
 }): Promise<{ delivery: DeliveryView; need: NeedCard }> {
-  return notImplemented("recordDelivery");
+  return deliveriesCore.recordDelivery(input);
 }
 
+/** message: undefined = keep the stored message, "" = no donor message (null), otherwise the staff's text. */
 export async function confirmDelivery(
-  _deliveryId: string,
-  _orgId: string,
-  _message?: string,
+  deliveryId: string,
+  orgId: string,
+  message?: string,
 ): Promise<{ delivery: DeliveryView; need: NeedCard }> {
-  return notImplemented("confirmDelivery");
+  return deliveriesCore.confirmDelivery(deliveryId, orgId, message);
 }
 
 /**

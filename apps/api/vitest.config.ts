@@ -16,6 +16,7 @@ export default defineConfig({
     // Money tests make 20–40 sequential round trips to a remote Neon branch (~250 ms each from a laptop).
     testTimeout: 120_000,
     hookTimeout: 120_000,
+    teardownTimeout: 30_000,
     // Tests must never need real keys. Minimal env so env.ts parses.
     // The app's own db client (src/db/client.ts) points at the TEST database when one is configured,
     // so route tests exercise real SQL; otherwise at a dummy URL that is never connected to.

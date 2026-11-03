@@ -46,7 +46,7 @@ const EnvSchema = z.object({
 
   // B's keys: optional at boot. B's routes return 503 UPSTREAM when missing.
   GOOGLE_GENERATIVE_AI_API_KEY: optional,
-  GEMINI_MODEL: z.string().default("gemini-2.5-flash"),
+  GEMINI_MODEL: z.string().default("gemini-2.5-flash-lite"), // free-tier decision (NOTES.md §0)
   GEMINI_EMBEDDING_MODEL: z.string().default("gemini-embedding-001"),
   CHANNEL3_API_KEY: optional,
   DASHBOARD_HMAC_SECRET: optional,

@@ -11,6 +11,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 import * as schema from "../db/schema";
 import { describePgUrl, directNeonUrl, normalizePgUrl } from "../db/url";
+import { isConnectionError } from "../lib/dbErrors";
 
 const testUrl = process.env.TEST_DATABASE_URL ?? "";
 const devUrl = process.env.GUARD_DEV_DATABASE_URL ?? "";
@@ -33,32 +34,55 @@ function assertSafeTarget() {
 export function createTestDb() {
   assertSafeTarget();
   // Direct host: DDL (drop/migrate) is more reliable without the pooler.
-  const pool = new pg.Pool({ connectionString: normalizePgUrl(directNeonUrl(testUrl)), max: 5 });
+  // Timeouts: a stalled network connect or query must fail the test, not hang the run (and pool.end()) forever.
+  const pool = new pg.Pool({
+    connectionString: normalizePgUrl(directNeonUrl(testUrl)),
+    max: 5,
+    connectionTimeoutMillis: 30_000,
+    query_timeout: 60_000,
+    keepAlive: true,
+  });
   const db = drizzle(pool, { schema });
   return { pool, db };
 }
 
 export type TestDb = ReturnType<typeof createTestDb>;
 
+/** Retry setup steps when the network to Neon drops a connect (ETIMEDOUT from this laptop happens). */
+async function withConnectRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!isConnectionError(err) || i >= attempts) throw err;
+      await new Promise((r) => setTimeout(r, 2000 * i));
+    }
+  }
+}
+
 /** Drop all app objects and re-run every migration from scratch. */
 export async function resetTestDb(t: TestDb): Promise<void> {
   assertSafeTarget();
-  await t.pool.query("DROP SCHEMA IF EXISTS drizzle CASCADE");
-  await t.pool.query("DROP SCHEMA IF EXISTS public CASCADE");
-  await t.pool.query("CREATE SCHEMA public");
-  await migrate(t.db, { migrationsFolder });
+  await withConnectRetry(async () => {
+    await t.pool.query("DROP SCHEMA IF EXISTS drizzle CASCADE");
+    await t.pool.query("DROP SCHEMA IF EXISTS public CASCADE");
+    await t.pool.query("CREATE SCHEMA public");
+    await migrate(t.db, { migrationsFolder });
+  });
 }
 
 /** Apply any pending migrations (no-op when up to date). Cheaper than resetTestDb. */
 export async function migrateTestDb(t: TestDb): Promise<void> {
   assertSafeTarget();
-  await migrate(t.db, { migrationsFolder });
+  await withConnectRetry(() => migrate(t.db, { migrationsFolder }));
 }
 
 /** Fast cleanup between tests: empty every table, keep the schema. */
 export async function truncateAll(t: TestDb): Promise<void> {
-  await t.pool.query(
-    `TRUNCATE allocations, reservations, donations, purchases, deliveries, agent_actions,
+  await withConnectRetry(() =>
+    t.pool.query(
+      `TRUNCATE allocations, reservations, donations, purchases, deliveries, agent_actions,
               sponsor_invoices, webhook_events, needs, organizations RESTART IDENTITY CASCADE`,
+    ),
   );
 }

@@ -164,6 +164,19 @@ Where things go: **decisions** → this table. **Requests and action items for a
 
 ## 8. Tests
 
+- **Neon connects from this laptop time out now and then** (`connect ETIMEDOUT`, sometimes as an `AggregateError` with an
+  EMPTY message, because Node tried IPv4 and IPv6 and both failed). In a full run that made 8+ tests fail in different
+  places each time, and a donor in the race test got a blank `500 INTERNAL`. Fixes: `withTxRetry` now also retries
+  connection errors (safe, because a failed transaction rolls back), the error handler answers `503 UPSTREAM` "database briefly
+  unavailable" instead of a blank 500 (`lib/dbErrors.ts`), test setup retries connects, and pools have `query_timeout`.
+  → **If a run shows scattered failures, look for `ETIMEDOUT` first and rerun that file alone** before debugging logic.
+- **Never wait on a full `pnpm test` from an agent command.** It takes 15–25 min against Neon and looked like a hang.
+  Run DB test files one or a few at a time (`npx vitest run src/money/purchases.test.ts` in `apps/api`), each takes 1–4 min.
+  Vitest only prints failure details at the END of a run, so a killed run shows ✓/× but no reasons.
+- **Each developer needs their OWN `TEST_DATABASE_URL` branch** (e.g. Neon `test-a`, `test-b`, `test-c`). Two runs on the
+  same branch truncate each other's rows and fail with "Need not found" or foreign-key errors that look like real bugs.
+  If you copied someone's `.env`, change `TEST_DATABASE_URL` to your own branch.
+
 - **DB tests run against Neon from a laptop: ~250 ms per round trip.** Money tests make 20–40 round trips, so the default
   30 s timeout flaked (a *different* test failed each run). → `testTimeout`/`hookTimeout` 120 s in `vitest.config.ts`.
   If a different test fails on every run, suspect timeouts before logic.

@@ -30,3 +30,18 @@ describe("assertCloudinaryUrl (CLOUDINARY_CLOUD_NAME=demo in tests)", () => {
     expect(() => assertCloudinaryUrl(url)).toThrow(HttpError);
   });
 });
+
+describe("isConnectionError", () => {
+  it("recognises dropped connections, including drizzle-wrapped and dual-stack AggregateErrors", async () => {
+    const { isConnectionError } = await import("./dbErrors");
+    const agg = Object.assign(
+      new AggregateError([Object.assign(new Error("connect ETIMEDOUT"), { code: "ETIMEDOUT" })], ""),
+      {},
+    );
+    expect(isConnectionError(agg)).toBe(true);
+    expect(isConnectionError({ message: "Failed query: x", cause: agg })).toBe(true);
+    expect(isConnectionError(new Error("timeout exceeded when trying to connect"))).toBe(true);
+    expect(isConnectionError(Object.assign(new Error("dup"), { code: "23505" }))).toBe(false);
+    expect(isConnectionError(new Error("boom"))).toBe(false);
+  });
+});
