@@ -188,10 +188,10 @@ describe.skipIf(!hasTestDb)("PayPal webhooks", () => {
   });
 
   it("other event types are acknowledged and stored", async () => {
-    for (const type of ["PAYMENT.CAPTURE.REFUNDED", "INVOICING.INVOICE.PAID", "CHECKOUT.ORDER.APPROVED"]) {
+    for (const type of ["PAYMENT.CAPTURE.REFUNDED", "CHECKOUT.ORDER.APPROVED"]) {
       expect((await deliver({ id: `WH-${type}`, event_type: type, resource: {} })).statusCode).toBe(200);
     }
-    expect(await t.db.select().from(webhookEvents)).toHaveLength(3);
+    expect(await t.db.select().from(webhookEvents)).toHaveLength(2);
   });
 
   it("a processing error returns 500 (PayPal retries) and records the error; a later retry succeeds", async () => {

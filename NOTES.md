@@ -167,6 +167,11 @@ Where things go: **decisions** → this table. **Requests and action items for a
   sent. We GET its status before releasing the sponsor holds; if we can't tell, the holds stay and the error says so.
   Same idea for refunds: a refund PayPal accepted is always recorded, and if saving fails the action stays `approved`
   with an error instead of turning `failed`.
+- **Invoice paid = trust PayPal's invoice, not the event body.** The `INVOICING.INVOICE.PAID` handler takes only the
+  invoice id from the event, then GETs the invoice (status must be `PAID`; amount = `payments.paid_amount`; payment id
+  = last `payments.transactions[].payment_id`). Unknown invoice ids are ignored without calling PayPal.
+- **To pay a sponsor invoice in the sandbox**, the invoice's recipient email must be the sandbox PERSONAL account's
+  email; open the `payerViewUrl` and log in as that buyer.
 - **Sandbox can be flaky from this network** (connect timeouts). Retry once before assuming a code problem.
 
 ## 7. Fastify

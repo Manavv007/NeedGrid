@@ -1,6 +1,6 @@
 /** Invoicing v2 request/response helpers. Response samples copied from a real sandbox call (Nov 4, 2026). */
 import { describe, expect, it } from "vitest";
-import { buildCreateInvoiceBody, invoiceIdFromCreate, payerViewUrlOf, qrDataUrlFrom } from "./invoices";
+import { buildCreateInvoiceBody, invoiceIdFromCreate, invoiceStateOf, payerViewUrlOf, qrDataUrlFrom } from "./invoices";
 
 const PNG_B64 = `iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ${"A".repeat(80)}ErkJggg==`;
 
@@ -46,6 +46,29 @@ describe("PayPal invoices", () => {
       "https://x.example/p",
     );
     expect(payerViewUrlOf(null)).toBeNull();
+  });
+
+  it("reads status, paid amount and the latest payment id from GET invoice", () => {
+    expect(
+      invoiceStateOf({
+        id: "INV2-9LLG",
+        status: "PAID",
+        payments: {
+          paid_amount: { currency_code: "USD", value: "75.00" },
+          transactions: [{ payment_id: "PAY-1", payment_date: "2026-11-05" }],
+        },
+        detail: { metadata: { recipient_view_url: "https://www.sandbox.paypal.com/invoice/p/#9LLG" } },
+      }),
+    ).toEqual({
+      status: "PAID",
+      paidCents: 7500,
+      transactionId: "PAY-1",
+      payerViewUrl: "https://www.sandbox.paypal.com/invoice/p/#9LLG",
+    });
+    expect(invoiceStateOf({ status: "SENT" })).toMatchObject({ status: "SENT", paidCents: null, transactionId: null });
+    expect(() =>
+      invoiceStateOf({ status: "PAID", payments: { paid_amount: { currency_code: "EUR", value: "1" } } }),
+    ).toThrow(/currency/);
   });
 
   it("extracts the PNG from PayPal's multipart QR response", () => {

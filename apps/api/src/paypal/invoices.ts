@@ -4,7 +4,7 @@
  *
  * Money code talks to PayPal only through `invoicesGateway()`, so tests swap in a fake with `setInvoicesGateway`.
  */
-import { centsToPayPalValue } from "@needgrid/shared";
+import { centsToPayPalValue, payPalValueToCents } from "@needgrid/shared";
 import { z } from "zod";
 import { PayPalApiError, paypalFetch } from "./client";
 
@@ -18,13 +18,23 @@ export interface CreateInvoiceInput {
   items: Array<{ title: string; amountCents: number }>;
 }
 
+export interface InvoiceState {
+  /** DRAFT, SENT, SCHEDULED, UNPAID, PARTIALLY_PAID, PAID, MARKED_AS_PAID, CANCELLED, REFUNDED, … */
+  status: string;
+  payerViewUrl: string | null;
+  /** payments.paid_amount (null when nothing has been paid). */
+  paidCents: number | null;
+  /** The latest PayPal payment on the invoice (payments.transactions[].payment_id). */
+  transactionId: string | null;
+}
+
 export interface InvoicesGateway {
   /** Creates a DRAFT invoice. Returns PayPal's invoice id (INV2-…). */
   createInvoice(input: CreateInvoiceInput): Promise<{ invoiceId: string }>;
   /** Sends (emails) the invoice. Returns the link the sponsor pays at, when PayPal gives one. */
   sendInvoice(invoiceId: string): Promise<{ payerViewUrl: string | null }>;
   /** PayPal status, e.g. DRAFT, SENT, UNPAID, PAID. Used to resolve an ambiguous send failure. */
-  getInvoiceStatus(invoiceId: string): Promise<{ status: string; payerViewUrl: string | null }>;
+  getInvoiceStatus(invoiceId: string): Promise<InvoiceState>;
   /** QR code of a sent invoice as "data:image/png;base64,…". */
   generateQrCode(invoiceId: string): Promise<string>;
   /** Deletes a draft (best effort clean-up after a failed approval). */
@@ -62,14 +72,39 @@ export function buildCreateInvoiceBody(input: CreateInvoiceInput) {
 }
 
 const Link = z.object({ href: z.string(), rel: z.string().optional() });
+const Money = z.object({ value: z.string(), currency_code: z.string().optional() });
 const InvoiceSchema = z.object({
   id: z.string().optional(),
   status: z.string().optional(),
   detail: z.object({ metadata: z.object({ recipient_view_url: z.string().optional() }).optional() }).optional(),
+  payments: z
+    .object({
+      paid_amount: Money.optional(),
+      transactions: z
+        .array(z.object({ payment_id: z.string().optional(), payment_date: z.string().optional() }))
+        .optional(),
+    })
+    .optional(),
   links: z.array(Link).optional(),
   href: z.string().optional(),
   rel: z.string().optional(),
 });
+
+/** GET /v2/invoicing/invoices/{id} → what our money code needs. */
+export function invoiceStateOf(raw: unknown): InvoiceState {
+  const b = InvoiceSchema.parse(raw ?? {});
+  const paid = b.payments?.paid_amount;
+  if (paid?.currency_code && paid.currency_code !== "USD") {
+    throw new PayPalApiError(`Unexpected invoice currency ${paid.currency_code}`, 200, null, [], null);
+  }
+  const withId = (b.payments?.transactions ?? []).filter((t) => t.payment_id);
+  return {
+    status: b.status ?? "UNKNOWN",
+    payerViewUrl: payerViewUrlOf(raw),
+    paidCents: paid ? payPalValueToCents(paid.value) : null,
+    transactionId: withId.at(-1)?.payment_id ?? null,
+  };
+}
 
 /** Create returns the invoice (Prefer: return=representation) or just a link ending in the id. */
 export function invoiceIdFromCreate(raw: unknown): string {
@@ -138,8 +173,7 @@ export const realInvoicesGateway: InvoicesGateway = {
 
   async getInvoiceStatus(invoiceId) {
     const { data } = await paypalFetch("GET", path(invoiceId));
-    const b = InvoiceSchema.parse(data ?? {});
-    return { status: b.status ?? "UNKNOWN", payerViewUrl: payerViewUrlOf(data) };
+    return invoiceStateOf(data);
   },
 
   async generateQrCode(invoiceId) {
