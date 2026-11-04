@@ -80,7 +80,10 @@ export const FAKE_QR =
 
 /** In-memory PayPal Invoicing v2. `fail` makes the named step throw once, like an outage. */
 export class FakePayPalInvoices implements InvoicesGateway {
-  invoices = new Map<string, { input: CreateInvoiceInput; status: string }>();
+  invoices = new Map<
+    string,
+    { input: CreateInvoiceInput; status: string; paidCents?: number; transactionId?: string }
+  >();
   calls: string[] = [];
   fail: { create?: boolean; send?: boolean; qr?: boolean; get?: boolean } = {};
   /** When a send fails, whether PayPal actually sent it anyway (an ambiguous failure). */
@@ -121,7 +124,18 @@ export class FakePayPalInvoices implements InvoicesGateway {
     return {
       status: inv.status,
       payerViewUrl: inv.status === "DRAFT" ? null : `https://www.sandbox.paypal.com/invoice/p/#${invoiceId}`,
+      paidCents: inv.paidCents ?? null,
+      transactionId: inv.transactionId ?? null,
     };
+  }
+
+  /** Simulates the sponsor paying the invoice in PayPal (defaults to the full amount). */
+  pay(invoiceId: string, cents?: number) {
+    const inv = this.invoices.get(invoiceId);
+    if (!inv) throw new Error(`fake: unknown invoice ${invoiceId}`);
+    inv.status = "PAID";
+    inv.paidCents = cents ?? inv.input.items.reduce((s, i) => s + i.amountCents, 0);
+    inv.transactionId = `FAKEPAY${invoiceId.slice(-4)}`;
   }
 
   async generateQrCode(invoiceId: string) {

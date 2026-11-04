@@ -9,17 +9,20 @@
  *     A failure before the invoice reaches the sponsor releases the holds and cancels our row.
  *     Once PayPal has sent it, the holds stay: the sponsor may pay at any time (a missing QR code is only a warning).
  *
- * Paying the invoice (INVOICING.INVOICE.PAID → allocations with reason `sponsor`) is Phase 9.
+ * Paid (INVOICING.INVOICE.PAID webhook → recordInvoicePaid): one donation (source `invoice`) whose money goes to
+ *   every need on the invoice with reason `sponsor`, converting the sponsor holds. Money that no longer fits
+ *   (a tile was bought or closed meanwhile) overflows to the most urgent open needs; the rest stays unallocated.
  */
 import type { CreateInvoiceArgs } from "@needgrid/shared";
 import { SponsorInvoiceView } from "@needgrid/shared";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import type { Executor } from "../core/needs";
+import { publishNeedUpdated, type Executor } from "../core/needs";
 import { db } from "../db/client";
-import { organizations, reservations, sponsorInvoices, type SponsorInvoiceRow } from "../db/schema";
+import { donations, organizations, reservations, sponsorInvoices, type SponsorInvoiceRow } from "../db/schema";
 import { invoicesGateway } from "../paypal/invoices";
-import { lockNeed, roomCents } from "./ledger";
+import { newImpactToken } from "./capture";
+import { allocate, distribute, lockNeed, roomCents, withTxRetry } from "./ledger";
 
 export const AMOUNTS_CHANGED = "Amounts changed since this was proposed; ask the assistant again.";
 export const SPONSOR_HOLD_DAYS = 14;
@@ -216,4 +219,131 @@ export async function sendPayPalInvoice(p: {
       return { result: await viewResult(tx, p.sponsorInvoiceId) };
     },
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Paid
+// ---------------------------------------------------------------------------------------------
+
+export interface InvoicePaidInput {
+  paypalInvoiceId: string;
+  /** PayPal's payment id for the invoice payment; becomes donations.capture_id (unique → counted once). */
+  transactionId: string;
+  paidCents: number;
+}
+
+export type InvoicePaidResult =
+  | { kind: "recorded"; donationId: string; sponsorInvoiceId: string }
+  | { kind: "duplicate"; donationId: string | null; sponsorInvoiceId: string }
+  | { kind: "unknown" };
+
+/**
+ * Record a paid sponsor invoice. Idempotent: the invoice row is locked and a `paid` invoice returns at once,
+ * and the unique capture_id stops the same payment being counted twice.
+ */
+export async function recordInvoicePaid(input: InvoicePaidInput): Promise<InvoicePaidResult> {
+  if (!Number.isSafeInteger(input.paidCents) || input.paidCents <= 0) {
+    throw new Error(`recordInvoicePaid: invalid amount ${input.paidCents}`);
+  }
+  const touched = new Set<string>();
+  const result = await withTxRetry(() =>
+    db.transaction(async (tx): Promise<InvoicePaidResult> => {
+      touched.clear();
+      const [inv] = await tx
+        .select()
+        .from(sponsorInvoices)
+        .where(eq(sponsorInvoices.paypalInvoiceId, input.paypalInvoiceId))
+        .for("update");
+      if (!inv) return { kind: "unknown" };
+      const existing = async () =>
+        (
+          await tx.select({ id: donations.id }).from(donations).where(eq(donations.sponsorInvoiceId, inv.id)).limit(1)
+        )[0]?.id ?? null;
+      if (inv.status === "paid") return { kind: "duplicate", donationId: await existing(), sponsorInvoiceId: inv.id };
+
+      const [don] = await tx
+        .insert(donations)
+        .values({
+          orgId: inv.orgId,
+          sponsorInvoiceId: inv.id,
+          captureId: input.transactionId,
+          amountCents: input.paidCents,
+          donorName: inv.recipientName,
+          donorEmail: inv.recipientEmail,
+          rollOverConsent: true,
+          source: "invoice",
+          status: "captured",
+          impactToken: newImpactToken(),
+        })
+        .onConflictDoNothing()
+        .returning({ id: donations.id });
+      if (!don) return { kind: "duplicate", donationId: await existing(), sponsorInvoiceId: inv.id };
+
+      const holds = await tx
+        .select()
+        .from(reservations)
+        .where(and(eq(reservations.sponsorInvoiceId, inv.id), eq(reservations.status, "active")))
+        .for("update");
+      const holdByNeed = new Map(holds.map((h) => [h.needId, h.id]));
+
+      // Lock in id order (deadlock-safe), then give in the invoice's own order.
+      const locked = new Map<string, Awaited<ReturnType<typeof lockNeed>>>();
+      for (const id of [...new Set(inv.planned.map((p) => p.needId))].sort()) locked.set(id, await lockNeed(tx, id));
+
+      let left = input.paidCents;
+      for (const item of inv.planned) {
+        if (left === 0) break;
+        const need = locked.get(item.needId);
+        if (!need) continue;
+        // This invoice's own hold is being converted now, so it doesn't count against the room.
+        const give = Math.min(left, item.amountCents, await roomCents(tx, need, holdByNeed.get(item.needId)));
+        if (give > 0) {
+          await allocate(tx, { donationId: don.id, needId: need.id, cents: give, reason: "sponsor" });
+          touched.add(need.id);
+          left -= give;
+        }
+      }
+      if (holds.length) {
+        await tx
+          .update(reservations)
+          .set({ status: "converted" })
+          .where(
+            inArray(
+              reservations.id,
+              holds.map((h) => h.id),
+            ),
+          );
+        holds.forEach((h) => touched.add(h.needId));
+      }
+      if (left > 0) {
+        const placed = await distribute(tx, { donationId: don.id, orgId: inv.orgId, cents: left, reason: "overflow" });
+        placed.needIds.forEach((id) => touched.add(id));
+        left = placed.leftoverCents;
+      }
+      if (left > 0) {
+        // Nowhere to go. Invoice money is returned through PayPal's invoice refund, not create_refund, so this only
+        // sets it aside (visible as unallocated) for staff to decide.
+        await tx.update(donations).set({ unallocatedCents: left }).where(eq(donations.id, don.id));
+        console.warn(`[invoices] ${left} cents of sponsor invoice ${inv.id} had nowhere to go`);
+      }
+      await tx
+        .update(sponsorInvoices)
+        .set({ status: "paid", paidAt: sql`clock_timestamp()` })
+        .where(eq(sponsorInvoices.id, inv.id));
+      return { kind: "recorded", donationId: don.id, sponsorInvoiceId: inv.id };
+    }),
+  );
+  for (const id of touched) await publishNeedUpdated(id);
+  return result;
+}
+
+/** GET /api/staff/invoices: this org's sponsor invoices, newest first (max 100). */
+export async function listSponsorInvoices(orgId: string): Promise<SponsorInvoiceView[]> {
+  const rows = await db
+    .select()
+    .from(sponsorInvoices)
+    .where(eq(sponsorInvoices.orgId, orgId))
+    .orderBy(desc(sponsorInvoices.createdAt))
+    .limit(100);
+  return rows.map(toSponsorInvoiceView);
 }

@@ -10,16 +10,18 @@
  *      retries later; processing is idempotent, so a retry is always safe.
  *
  * Webhooks are a BACKUP for the capture response (donor closed the page before capture finished),
- * and in Phase 9 the only signal that a sponsor invoice was paid.
+ * and the only signal that a sponsor invoice was paid.
  */
 import { payPalValueToCents } from "@needgrid/shared";
 import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { db } from "../db/client";
-import { reservations, webhookEvents } from "../db/schema";
+import { reservations, sponsorInvoices, webhookEvents } from "../db/schema";
 import { HttpError } from "../lib/http";
 import { recordCapture } from "../money/capture";
+import { recordInvoicePaid } from "../money/invoices";
+import { invoicesGateway } from "../paypal/invoices";
 import { readWebhookHeaders, webhookVerifier } from "../paypal/webhooks";
 
 declare module "fastify" {
@@ -45,6 +47,11 @@ const CaptureResource = z.object({
 });
 
 const isUuid = (s: string) => z.uuid().safeParse(s).success;
+
+const InvoiceResource = z.object({
+  id: z.string().min(1).optional(),
+  invoice: z.object({ id: z.string().min(1) }).optional(),
+});
 
 /** PAYMENT.CAPTURE.COMPLETED: record the donation if the page's capture call didn't (idempotent). */
 async function handleCaptureCompleted(resource: unknown): Promise<string> {
@@ -76,16 +83,41 @@ async function handleCaptureCompleted(resource: unknown): Promise<string> {
   return `donation ${result.donationId}`;
 }
 
+/**
+ * INVOICING.INVOICE.PAID: a sponsor paid. We only take the invoice id from the event and ask PayPal for the
+ * invoice itself (status, amount paid, payment id): the event body's shape varies, the invoice is the truth.
+ */
+async function handleInvoicePaid(resource: unknown): Promise<string> {
+  const r = InvoiceResource.parse(resource);
+  const invoiceId = r.invoice?.id ?? r.id;
+  if (!invoiceId) throw new Error("invoice event has no invoice id");
+  const [ours] = await db
+    .select({ id: sponsorInvoices.id })
+    .from(sponsorInvoices)
+    .where(eq(sponsorInvoices.paypalInvoiceId, invoiceId))
+    .limit(1);
+  if (!ours) return "ignored: not a NeedGrid sponsor invoice";
+
+  const state = await invoicesGateway().getInvoiceStatus(invoiceId);
+  if (state.status !== "PAID") return `ignored: invoice status ${state.status}`;
+  if (!state.paidCents) throw new Error(`invoice ${invoiceId} is PAID but has no paid amount`);
+  const result = await recordInvoicePaid({
+    paypalInvoiceId: invoiceId,
+    transactionId: state.transactionId ?? `invoice-${invoiceId}`,
+    paidCents: state.paidCents,
+  });
+  return result.kind === "unknown" ? "ignored: not a NeedGrid sponsor invoice" : `${result.kind}: ${result.donationId}`;
+}
+
 export async function processPayPalEvent(event: PayPalEvent): Promise<string> {
   switch (event.event_type) {
     case "PAYMENT.CAPTURE.COMPLETED":
       return handleCaptureCompleted(event.resource);
     case "PAYMENT.CAPTURE.REFUNDED":
-      // Refunds are recorded when our own executor runs them (Phase 10); this is just a receipt.
+      // Refunds are recorded when our own executor runs them (agent/executors.ts); this is just a receipt.
       return "logged: refund";
     case "INVOICING.INVOICE.PAID":
-      // Sponsor invoices arrive in Phase 9. No invoices exist before then.
-      return "logged: invoice paid (handler arrives in Phase 9)";
+      return handleInvoicePaid(event.resource);
     default:
       return `ignored: ${event.event_type}`;
   }
