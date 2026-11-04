@@ -2,20 +2,15 @@
  * The ONLY write API that B's code (apps/api/src/ai, scripts/seed) may use.
  * Signatures are a contract (AGENT_A_BACKEND.md §7.2): don't change them without telling B.
  *
- * Status:
- *   Implemented: getNeedCard, getNeedCards, listDonatableNeeds, getNextMostUrgentNeed, setNeedEmbedding,
- *                publishNeedUpdated, createProposedPurchase, recordDelivery, confirmDelivery
- *   Stubs that throw "not implemented" until:
- *     Phase 7 (Tue Nov 3): proposeAction, listPayPalTransactions, listRecordedDonations
+ * Status: every function is implemented. Approve/reject/execute of proposed actions arrive in Phase 8.
  */
 import type { AgentAction, DeliveryView, MoneyTool, NeedCard, PurchaseOffer, PurchaseView } from "@needgrid/shared";
+import * as actionsCore from "../agent/actions";
 import * as purchasesCore from "../money/purchases";
+import { transactionsGateway } from "../paypal/transactions";
 import * as deliveriesCore from "./deliveries";
 import * as needsCore from "./needs";
-
-function notImplemented(name: string): never {
-  throw new Error(`not implemented: core.${name}`);
-}
+import * as recordsCore from "./records";
 
 export async function getNeedCard(needId: string): Promise<NeedCard | null> {
   return needsCore.getNeedCard(needId);
@@ -75,17 +70,17 @@ export async function confirmDelivery(
  * Validates args with MONEY_TOOL_ARGS[tool], checks every referenced id belongs to orgId, computes amounts
  * into `computed`, builds `preview`, inserts agent_actions (status proposed). NEVER calls PayPal. Throws HttpError on bad input.
  */
-export async function proposeAction(_input: {
+export async function proposeAction(input: {
   orgId: string;
   tool: MoneyTool;
   args: unknown;
   origin: "assistant" | "system";
 }): Promise<AgentAction> {
-  return notImplemented("proposeAction");
+  return actionsCore.proposeAction(input);
 }
 
-/** Read-only PayPal Transaction Search for the reconcile tool. Max 31-day window (PayPal limit). */
-export async function listPayPalTransactions(_input: { start: Date; end: Date }): Promise<
+/** Read-only PayPal Transaction Search for the reconcile tool. Max 31-day window (PayPal limit). Amounts are signed. */
+export async function listPayPalTransactions(input: { start: Date; end: Date }): Promise<
   Array<{
     transactionId: string;
     status: string;
@@ -97,11 +92,11 @@ export async function listPayPalTransactions(_input: { start: Date; end: Date })
     eventCode: string;
   }>
 > {
-  return notImplemented("listPayPalTransactions");
+  return transactionsGateway().list(input);
 }
 
 /** Donations recorded by us in a window (for reconcile). Excludes source = "seed". */
-export async function listRecordedDonations(_input: { orgId: string; start: Date; end: Date }): Promise<
+export async function listRecordedDonations(input: { orgId: string; start: Date; end: Date }): Promise<
   Array<{
     donationId: string;
     captureId: string | null;
@@ -110,7 +105,7 @@ export async function listRecordedDonations(_input: { orgId: string; start: Date
     at: string;
   }>
 > {
-  return notImplemented("listRecordedDonations");
+  return recordsCore.listRecordedDonations(input);
 }
 
 /** SSE fan-out of the need's current NeedCard to every open tile wall. Never throws. */

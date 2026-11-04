@@ -8,6 +8,7 @@ import { errorHandlerPlugin } from "./plugins/errorHandler";
 import { rateLimitPlugin } from "./plugins/rateLimit";
 import { staffAuthPlugin, type FindOrgByStaffKeyHash } from "./plugins/staffAuth";
 import { healthRoutes } from "./routes/health";
+import { actionRoutes } from "./routes/actions";
 import { donationRoutes } from "./routes/donations";
 import { publicRoutes } from "./routes/public";
 import { purchaseRoutes } from "./routes/purchases";
@@ -66,6 +67,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(paypalWebhookRoutes);
   await app.register(staffRoutes);
   await app.register(purchaseRoutes);
+  await app.register(actionRoutes);
   await app.register(aiPlugin);
 
   return app;

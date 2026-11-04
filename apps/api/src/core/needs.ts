@@ -61,24 +61,27 @@ const isoOrNull = (d: Date | null) => (d ? d.toISOString() : null);
 // NeedCard
 // ---------------------------------------------------------------------------------------------
 
+// These subqueries reference the outer row as "needs"."id" explicitly: drizzle prints ${needs.id} as a bare "id"
+// in single-table selects, which inside a subquery would bind to the subquery's own table and silently match nothing.
+
 /** Sum of active, unexpired holds on the need in the current row (correlated subquery). */
 export const heldCentsSql = sql<number>`coalesce((
   select sum(r.amount_cents) from reservations r
-  where r.need_id = ${needs.id} and r.status = 'active' and r.expires_at > now()
+  where r.need_id = "needs"."id" and r.status = 'active' and r.expires_at > now()
 ), 0)::int`;
 
 /** Distinct donations whose net allocation to the need is positive. */
 const donorCountSql = sql<number>`(
   select count(*) from (
-    select a.donation_id from allocations a where a.need_id = ${needs.id}
+    select a.donation_id from allocations a where a.need_id = "needs"."id"
     group by a.donation_id having sum(a.amount_cents) > 0
   ) d
 )::int`;
 
 /** Arrival photo donors may see: delivered needs only, latest delivery that passed the check or was confirmed. */
-const deliveryPhotoSql = sql<string | null>`case when ${needs.status} = 'delivered' then (
+const deliveryPhotoSql = sql<string | null>`case when "needs"."status" = 'delivered' then (
   select d.photo_url from deliveries d
-  where d.need_id = ${needs.id} and (d.needs_review = false or d.confirmed_at is not null)
+  where d.need_id = "needs"."id" and (d.needs_review = false or d.confirmed_at is not null)
   order by d.created_at desc limit 1
 ) end`;
 

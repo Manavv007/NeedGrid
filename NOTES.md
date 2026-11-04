@@ -112,6 +112,13 @@ Where things go: **decisions** → this table. **Requests and action items for a
 - **Deadlocks are possible** when overflow locks several needs in different orders. `withTxRetry` re-runs the whole
   transaction on `40P01` / `40001`. Anything inside must be safe to repeat (no PayPal calls inside transactions).
 - **Never hold a row lock while calling PayPal.** Create the hold, COMMIT, then call PayPal; on failure release the hold.
+- **Retry only connect-phase failures** (ENOTFOUND, EAI_AGAIN, ECONNREFUSED, connect ETIMEDOUT, pool connect timeout),
+  with real backoff (1, 2, 4, 8 s). 100–400 ms retries were too fast for a DNS blip. Never retry a connection that dropped
+  mid-transaction: the COMMIT may already have happened. (`lib/dbErrors.ts`, `withTxRetry` in `money/ledger.ts`.)
+- **Each vitest run gets a private database** `needgrid_run_<ts>_<rand>` (`test/runDb.ts`), dropped at teardown, so two
+  people or two runs on the `test` branch can't delete each other's rows. Stale ones older than 3 h are cleaned up.
+- **Drizzle prints `${needs.id}` as a bare `"id"`** in single-table selects. Inside a subquery that bound to the outer
+  table's `id` and silently ignored holds. Write `"needs"."id"` explicitly in raw SQL subqueries.
 
 ## 5. Money rules in code (things that are easy to break)
 

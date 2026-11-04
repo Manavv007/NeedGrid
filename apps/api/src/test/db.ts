@@ -11,7 +11,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 import * as schema from "../db/schema";
 import { describePgUrl, directNeonUrl, normalizePgUrl } from "../db/url";
-import { isConnectionError } from "../lib/dbErrors";
+import { isConnectionError, retryConnectFailures } from "../lib/dbErrors";
 
 const testUrl = process.env.TEST_DATABASE_URL ?? "";
 const devUrl = process.env.GUARD_DEV_DATABASE_URL ?? "";
@@ -42,6 +42,7 @@ export function createTestDb() {
     query_timeout: 60_000,
     keepAlive: true,
   });
+  retryConnectFailures(pool);
   const db = drizzle(pool, { schema });
   return { pool, db };
 }
