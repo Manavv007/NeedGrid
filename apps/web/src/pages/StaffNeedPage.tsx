@@ -15,6 +15,7 @@ import { NeedBody } from "@/features/staff/manage/NeedBody";
 import { NeedHeader } from "@/features/staff/manage/NeedHeader";
 import { useStaffOrg } from "@/features/staff/useStaffOrg";
 import { ApiClientError } from "@/lib/api";
+import { errorCopy } from "@/lib/errorCopy";
 import { queryKeys, useStaffNeed } from "@/lib/queries";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 
@@ -50,7 +51,7 @@ function StaffNeedContent({ id }: { id: string }) {
     <StaffNeedNotFound />
   ) : detail.isError ? (
     <div className={PAGE}>
-      <ErrorState className="mt-6" onRetry={() => void detail.refetch()} />
+      <ErrorState {...errorCopy(detail.error, "staff")} className="mt-6" onRetry={() => void detail.refetch()} />
     </div>
   ) : (
     <StaffNeedLoading />

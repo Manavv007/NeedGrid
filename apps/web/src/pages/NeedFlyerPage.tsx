@@ -45,7 +45,7 @@ function NeedFlyerContent({ slug, needId }: { slug: string; needId: string }) {
     return <NeedFlyer detail={detail} />;
   }
   if (notFound) return <NeedFlyerNotFound />;
-  if (need.isError) return <FlyerError onRetry={() => void need.refetch()} />;
+  if (need.isError) return <FlyerError error={need.error} onRetry={() => void need.refetch()} />;
   return <FlyerLoading />;
 }
 
@@ -81,10 +81,12 @@ function NeedFlyer({ detail }: { detail: NeedDetailRes }) {
       <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-8">
         <ProductPhoto
           product={need.product}
+          category={need.category}
           loading="eager"
           className="aspect-square w-full max-w-64 self-center rounded-xl border-2 border-foreground p-4 sm:w-64 sm:self-auto"
           placeholderClassName="rounded-lg"
           iconClassName="size-12"
+          labelClassName="text-[15px] sm:text-[12pt]"
         />
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           <p className="text-[15px] sm:text-[14pt]">

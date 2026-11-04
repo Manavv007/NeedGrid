@@ -66,8 +66,21 @@ function toPayPalError(status: number, body: unknown, fallback: string): PayPalA
   const issues = (b.details ?? []).map((d) => d.issue).filter((i): i is string => typeof i === "string");
   const name = b.name ?? b.error ?? null;
   const detail = b.message ?? b.error_description ?? fallback;
-  return new PayPalApiError(`PayPal request failed: ${detail}`, status, name, issues, b.debug_id ?? null);
+  const hint = issues.map((i) => ISSUE_HINTS[i] ?? i).join("; ");
+  return new PayPalApiError(
+    `PayPal request failed: ${detail}${hint ? ` (${hint})` : ""}`,
+    status,
+    name,
+    issues,
+    b.debug_id ?? null,
+  );
 }
+
+/** Plain-English reasons for PayPal issue codes staff have actually hit. Unknown codes are shown as-is. */
+const ISSUE_HINTS: Record<string, string> = {
+  INR_FOREIGN_CURRENCY_BLOCKED:
+    "INR_FOREIGN_CURRENCY_BLOCKED: the recipient's PayPal account is in India and can't pay a USD invoice; use a US account",
+};
 
 // ---------------------------------------------------------------------------------------------
 // OAuth token
@@ -141,6 +154,8 @@ export interface PayPalRequestOptions {
   /** Required for POST: makes retries (ours and the caller's) idempotent on PayPal's side. */
   requestId?: string;
   query?: Record<string, string>;
+  /** "text": return the raw response body as a string (e.g. the invoice QR code, which isn't JSON). */
+  responseType?: "json" | "text";
 }
 
 export async function paypalFetch<T = unknown>(
@@ -157,7 +172,7 @@ export async function paypalFetch<T = unknown>(
     const token = await getAccessToken();
     const headers: Record<string, string> = {
       authorization: `Bearer ${token}`,
-      accept: "application/json",
+      accept: opts.responseType === "text" ? "*/*" : "application/json",
       prefer: "return=representation",
     };
     // PayPal requires a JSON content type on every write, even body-less ones like capture (else 415).
@@ -190,6 +205,7 @@ export async function paypalFetch<T = unknown>(
       continue;
     }
 
+    if (res.ok && opts.responseType === "text") return { status: res.status, data: (await res.text()) as T };
     const data = await readJson(res);
     if (!res.ok) throw toPayPalError(res.status, data, `${method} ${url.pathname} returned ${res.status}`);
     return { status: res.status, data: data as T };

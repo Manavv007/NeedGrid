@@ -10,6 +10,7 @@ import { InvoiceList } from "@/features/invoices/InvoiceList";
 import { invoiceTotals, newestFirst } from "@/features/invoices/invoiceView";
 import { useStaffOrg } from "@/features/staff/useStaffOrg";
 import { ApiClientError } from "@/lib/api";
+import { errorCopy } from "@/lib/errorCopy";
 import { formatUsd } from "@/lib/format";
 import { STAFF_ASSISTANT_PATH } from "@/lib/links";
 import { useInvoices, useKnownStaffNeeds } from "@/lib/queries";
@@ -48,7 +49,11 @@ export function InvoicesPage() {
         {invoices.data ? (
           <Loaded invoices={newestFirst(invoices.data.invoices)} orgName={org.name} knownNeeds={knownNeeds} />
         ) : invoices.isError && !signedOut ? (
-          <ErrorState className="mt-3" onRetry={() => void invoices.refetch()} />
+          <ErrorState
+            {...errorCopy(invoices.error, "staff", { optionalFeature: true })}
+            className="mt-3"
+            onRetry={() => void invoices.refetch()}
+          />
         ) : (
           <InvoicesSkeleton />
         )}

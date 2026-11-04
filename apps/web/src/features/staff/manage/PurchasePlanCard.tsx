@@ -38,6 +38,7 @@ export function PurchasePlanCard({ need, purchase, plan, onRecheck }: PurchasePl
           <div className="flex items-center gap-4">
             <ProductPhoto
               product={offer}
+              category={need.category}
               className="size-22 rounded-lg border"
               placeholderClassName="rounded-lg"
               iconClassName="size-8"

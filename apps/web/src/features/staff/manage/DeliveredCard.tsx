@@ -41,9 +41,11 @@ export function DeliveredCard({ need, delivery, focusHeading = false }: Delivere
         <div className="flex gap-2.5">
           <ProductPhoto
             product={need.product}
+            category={need.category}
             className="size-30 rounded-lg border"
             placeholderClassName="rounded-lg"
             iconClassName="size-8"
+            labelClassName="text-xs"
           />
           {delivery ? (
             <DeliveryPhoto

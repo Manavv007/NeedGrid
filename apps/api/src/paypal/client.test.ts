@@ -111,6 +111,19 @@ describe("paypalFetch", () => {
     const e = err as PayPalApiError;
     expect([e.status, e.code, e.paypalStatus, e.debugId]).toEqual([502, "UPSTREAM", 422, "dbg-42"]);
     expect(e.hasIssue("ORDER_NOT_APPROVED")).toBe(true);
+    expect(e.message).toBe("PayPal request failed: The requested action could not be performed (ORDER_NOT_APPROVED)");
+  });
+
+  it("explains issue codes staff have hit (sandbox buyer in India can't pay USD)", async () => {
+    responses.push(token, () =>
+      json(406, {
+        name: "MEDIA_TYPE_NOT_ACCEPTABLE",
+        message: "The server does not implement the media type that would be acceptable to the client.",
+        details: [{ issue: "INR_FOREIGN_CURRENCY_BLOCKED" }],
+      }),
+    );
+    const err = (await paypalFetch("POST", "/v2/x", { requestId: "r", body: {} }).catch((e: unknown) => e)) as Error;
+    expect(err.message).toContain("recipient's PayPal account is in India");
   });
 
   it("gives up after 3 retries on network errors", async () => {

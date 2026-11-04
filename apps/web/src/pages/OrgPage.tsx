@@ -12,6 +12,7 @@ import { OrgHeader, OrgHeaderSkeleton } from "@/features/tiles/OrgHeader";
 import { TILE_GRID, TileCardSkeleton } from "@/features/tiles/TileCard";
 import { TileWall } from "@/features/tiles/TileWall";
 import { ApiClientError } from "@/lib/api";
+import { errorCopy } from "@/lib/errorCopy";
 import { useOrg } from "@/lib/queries";
 import { useOrgStream } from "@/lib/sse";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
@@ -54,7 +55,7 @@ export function OrgPage() {
   if (org.isError) {
     return (
       <div className={`${PAGE} pt-12`}>
-        <ErrorState onRetry={() => void org.refetch()} />
+        <ErrorState {...errorCopy(org.error, "donor")} onRetry={() => void org.refetch()} />
       </div>
     );
   }

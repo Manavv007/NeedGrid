@@ -30,7 +30,7 @@ services:
       - key: PAYPAL_DONATION_ITEMS
         value: "false" # true only for a PayPal account approved for donations
       - key: GEMINI_MODEL
-        value: gemini-2.5-flash
+        value: gemini-2.5-flash-lite # free-tier decision; existing services must be changed in the dashboard too
       - key: GEMINI_EMBEDDING_MODEL
         value: gemini-embedding-001
       - key: STAFF_DEMO_KEY

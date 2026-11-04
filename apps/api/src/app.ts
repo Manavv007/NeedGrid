@@ -6,10 +6,14 @@ import { allowedOrigins, env } from "./env";
 import { corsPlugin } from "./plugins/cors";
 import { errorHandlerPlugin } from "./plugins/errorHandler";
 import { rateLimitPlugin } from "./plugins/rateLimit";
+import { securityHeadersPlugin } from "./plugins/securityHeaders";
 import { staffAuthPlugin, type FindOrgByStaffKeyHash } from "./plugins/staffAuth";
 import { healthRoutes } from "./routes/health";
+import { actionRoutes } from "./routes/actions";
 import { donationRoutes } from "./routes/donations";
+import { invoiceRoutes } from "./routes/invoices";
 import { publicRoutes } from "./routes/public";
+import { purchaseRoutes } from "./routes/purchases";
 import { staffRoutes } from "./routes/staff";
 import { streamRoutes } from "./routes/stream";
 import { paypalWebhookRoutes } from "./webhooks/paypal";
@@ -40,6 +44,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
               paths: [
                 'req.headers["x-staff-key"]',
                 "req.headers.authorization",
+                "req.headers.cookie",
                 'req.headers["paypal-transmission-sig"]',
                 'req.headers["paypal-cert-url"]',
                 'req.headers["paypal-auth-algo"]',
@@ -52,6 +57,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
 
   // Order matters: B's aiPlugin relies on CORS, rate-limit and staff auth already being registered.
   await app.register(errorHandlerPlugin, { exposeInternalErrors: env.NODE_ENV !== "production" });
+  await app.register(securityHeadersPlugin);
   await app.register(corsPlugin, { origins: allowedOrigins });
   await app.register(rateLimitPlugin);
   await app.register(staffAuthPlugin, {
@@ -64,6 +70,9 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(donationRoutes);
   await app.register(paypalWebhookRoutes);
   await app.register(staffRoutes);
+  await app.register(purchaseRoutes);
+  await app.register(actionRoutes);
+  await app.register(invoiceRoutes);
   await app.register(aiPlugin);
 
   return app;

@@ -192,9 +192,34 @@ describe("Invoices page /staff/invoices", () => {
     );
     await openInvoices();
     const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Something went wrong on our side. Please try again in a moment.");
+    expect(alert).not.toHaveTextContent(/gifts are safe/i);
     fail = false;
     await userEvent.click(within(alert).getByRole("button", { name: "Try again" }));
     expect(await screen.findByRole("row", { name: /Bayview Dental/ })).toBeInTheDocument();
+  });
+
+  it("a server without the invoices route (Fastify 404) shows a calm 'not switched on yet', with Try again", async () => {
+    server.use(
+      http.get(INVOICES, () =>
+        HttpResponse.json(
+          { message: "Route GET:/api/staff/invoices not found", error: "Not Found", statusCode: 404 },
+          { status: 404 },
+        ),
+      ),
+    );
+    await openInvoices();
+    const message = await screen.findByText(
+      "This part isn't switched on yet. It will show up here once it's live.",
+      {},
+      { timeout: 5_000 },
+    );
+    const box = message.closest("section");
+    if (!box) throw new Error("expected the notice box");
+    expect(box).toHaveAttribute("role", "status");
+    expect(within(box).getByRole("heading", { name: "Not available yet" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(box).getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });
 
   it("a 401 signs staff out and sends them to the login page, coming back here after", async () => {

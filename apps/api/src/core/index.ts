@@ -2,19 +2,16 @@
  * The ONLY write API that B's code (apps/api/src/ai, scripts/seed) may use.
  * Signatures are a contract (AGENT_A_BACKEND.md §7.2): don't change them without telling B.
  *
- * Status:
- *   Implemented (Phase 2): getNeedCard, getNeedCards, listDonatableNeeds, getNextMostUrgentNeed,
- *                          setNeedEmbedding, publishNeedUpdated (in-process fan-out; SSE route in Phase 3)
- *   Stubs that throw "not implemented" until:
- *     Phase 6 (Mon Nov 2): createProposedPurchase
- *     Phase 7 (Tue Nov 3): recordDelivery, confirmDelivery, proposeAction, listPayPalTransactions, listRecordedDonations
+ * Status: every function is implemented. Approve/reject/execute of proposed actions are staff-only HTTP routes
+ * (routes/actions.ts → agent/executors.ts) and are deliberately NOT exported here: the assistant can only propose.
  */
 import type { AgentAction, DeliveryView, MoneyTool, NeedCard, PurchaseOffer, PurchaseView } from "@needgrid/shared";
+import * as actionsCore from "../agent/actions";
+import * as purchasesCore from "../money/purchases";
+import { transactionsGateway } from "../paypal/transactions";
+import * as deliveriesCore from "./deliveries";
 import * as needsCore from "./needs";
-
-function notImplemented(name: string): never {
-  throw new Error(`not implemented: core.${name}`);
-}
+import * as recordsCore from "./records";
 
 export async function getNeedCard(needId: string): Promise<NeedCard | null> {
   return needsCore.getNeedCard(needId);
@@ -40,17 +37,17 @@ export async function setNeedEmbedding(needId: string, embedding: number[]): Pro
 }
 
 /** Inserts a purchases row (status proposed) and marks older proposed rows for that need `superseded`. Need must be `funded`. Computes newTargetCents itself. */
-export async function createProposedPurchase(_input: {
+export async function createProposedPurchase(input: {
   needId: string;
   offer: PurchaseOffer;
   explanation: string;
   flags: string[];
 }): Promise<PurchaseView> {
-  return notImplemented("createProposedPurchase");
+  return purchasesCore.createProposedPurchase(input);
 }
 
 /** Inserts a delivery row. If !needsReview → need becomes `delivered` (+ delivered_at) and SSE is published. Need must be `ordered`. */
-export async function recordDelivery(_input: {
+export async function recordDelivery(input: {
   needId: string;
   photoUrl: string;
   matchScore: number;
@@ -58,32 +55,33 @@ export async function recordDelivery(_input: {
   needsReview: boolean;
   message: string | null;
 }): Promise<{ delivery: DeliveryView; need: NeedCard }> {
-  return notImplemented("recordDelivery");
+  return deliveriesCore.recordDelivery(input);
 }
 
+/** message: undefined = keep the stored message, "" = no donor message (null), otherwise the staff's text. */
 export async function confirmDelivery(
-  _deliveryId: string,
-  _orgId: string,
-  _message?: string,
+  deliveryId: string,
+  orgId: string,
+  message?: string,
 ): Promise<{ delivery: DeliveryView; need: NeedCard }> {
-  return notImplemented("confirmDelivery");
+  return deliveriesCore.confirmDelivery(deliveryId, orgId, message);
 }
 
 /**
  * Validates args with MONEY_TOOL_ARGS[tool], checks every referenced id belongs to orgId, computes amounts
  * into `computed`, builds `preview`, inserts agent_actions (status proposed). NEVER calls PayPal. Throws HttpError on bad input.
  */
-export async function proposeAction(_input: {
+export async function proposeAction(input: {
   orgId: string;
   tool: MoneyTool;
   args: unknown;
   origin: "assistant" | "system";
 }): Promise<AgentAction> {
-  return notImplemented("proposeAction");
+  return actionsCore.proposeAction(input);
 }
 
-/** Read-only PayPal Transaction Search for the reconcile tool. Max 31-day window (PayPal limit). */
-export async function listPayPalTransactions(_input: { start: Date; end: Date }): Promise<
+/** Read-only PayPal Transaction Search for the reconcile tool. Max 31-day window (PayPal limit). Amounts are signed. */
+export async function listPayPalTransactions(input: { start: Date; end: Date }): Promise<
   Array<{
     transactionId: string;
     status: string;
@@ -95,11 +93,11 @@ export async function listPayPalTransactions(_input: { start: Date; end: Date })
     eventCode: string;
   }>
 > {
-  return notImplemented("listPayPalTransactions");
+  return transactionsGateway().list(input);
 }
 
 /** Donations recorded by us in a window (for reconcile). Excludes source = "seed". */
-export async function listRecordedDonations(_input: { orgId: string; start: Date; end: Date }): Promise<
+export async function listRecordedDonations(input: { orgId: string; start: Date; end: Date }): Promise<
   Array<{
     donationId: string;
     captureId: string | null;
@@ -108,7 +106,7 @@ export async function listRecordedDonations(_input: { orgId: string; start: Date
     at: string;
   }>
 > {
-  return notImplemented("listRecordedDonations");
+  return recordsCore.listRecordedDonations(input);
 }
 
 /** SSE fan-out of the need's current NeedCard to every open tile wall. Never throws. */

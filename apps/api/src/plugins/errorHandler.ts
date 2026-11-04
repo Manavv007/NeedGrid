@@ -2,6 +2,7 @@ import type { ApiError, ErrorCode } from "@needgrid/shared";
 import type { FastifyError, FastifyInstance } from "fastify";
 import fp from "fastify-plugin";
 import { ZodError } from "zod";
+import { isConnectionError } from "../lib/dbErrors";
 import { HttpError } from "../lib/http";
 
 function body(code: ErrorCode, message: string, details?: unknown): ApiError {
@@ -30,6 +31,11 @@ export const errorHandlerPlugin = fp(
       if (statusCode !== undefined && statusCode >= 400 && statusCode < 500) {
         // Fastify's own client errors: bad JSON, body too large, unsupported content type...
         return reply.status(statusCode).send(body("VALIDATION", err.message));
+      }
+      if (isConnectionError(err)) {
+        // Database unreachable (network blip, Neon waking up): tell the client to retry, don't show a blank 500.
+        req.log.warn({ err }, "database unreachable");
+        return reply.status(503).send(body("UPSTREAM", "The database is briefly unavailable. Please try again."));
       }
       req.log.error({ err }, "unhandled error");
       return reply

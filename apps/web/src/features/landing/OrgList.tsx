@@ -2,6 +2,7 @@ import { Building2 } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { WakingUp } from "@/components/WakingUp";
+import { errorCopy } from "@/lib/errorCopy";
 import { useOrgs } from "@/lib/queries";
 import { OrgCard, OrgCardSkeleton } from "./OrgCard";
 
@@ -31,7 +32,7 @@ export function OrgList() {
           <WakingUp />
         </div>
       ) : orgs.isError ? (
-        <ErrorState onRetry={() => void orgs.refetch()} />
+        <ErrorState {...errorCopy(orgs.error, "donor")} onRetry={() => void orgs.refetch()} />
       ) : orgs.data.orgs.length === 0 ? (
         <EmptyState
           icon={<Building2 className="size-6.5" />}

@@ -5,6 +5,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { QrCode } from "@/components/QrCode";
 import { buttonVariants } from "@/components/ui/button";
 import { WakingUp } from "@/components/WakingUp";
+import { errorCopy } from "@/lib/errorCopy";
 import { cn } from "@/lib/utils";
 import { shortUrl } from "./flyerNeeds";
 
@@ -89,10 +90,11 @@ export function FlyerLoading() {
   );
 }
 
-export function FlyerError({ onRetry }: { onRetry: () => void }) {
+/** A flyer's data didn't load. Flyer pages are public, so donor wording. */
+export function FlyerError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
   return (
     <main className="flex min-h-svh items-center justify-center bg-placeholder px-4 py-16">
-      <ErrorState onRetry={onRetry} />
+      <ErrorState {...errorCopy(error, "donor")} onRetry={onRetry} />
     </main>
   );
 }

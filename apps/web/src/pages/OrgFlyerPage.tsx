@@ -32,7 +32,7 @@ export function OrgFlyerPage() {
       />
     );
   }
-  if (org.isError) return <FlyerError onRetry={() => void org.refetch()} />;
+  if (org.isError) return <FlyerError error={org.error} onRetry={() => void org.refetch()} />;
   return <FlyerLoading />;
 }
 
@@ -86,6 +86,7 @@ function FlyerTile({ need }: { need: NeedCard }) {
     <div className="flex items-center gap-3 rounded-[10px] border-2 border-foreground px-3.5 py-3 break-inside-avoid">
       <ProductPhoto
         product={need.product}
+        category={need.category}
         className="size-12 rounded-md"
         placeholderClassName="rounded-md"
         iconClassName="size-5"

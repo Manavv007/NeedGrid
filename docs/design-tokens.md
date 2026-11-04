@@ -115,6 +115,32 @@ Warm, trustworthy, concrete. Real product photos are the hero; the UI stays calm
   Printed (`[data-flyer-sheet]` in `globals.css`): black on white, progress bars outlined, nothing that needs a
   background colour to be understood. The toolbar sets `@page` to A4 or Letter with 12 mm margins.
 
+## Added in C-11 (product-photo placeholders)
+
+Items without a product photo (food is hand-written, `manual-` products, and has no Channel3 image) show a placeholder
+tinted for the need's category: a category icon and, on larger photos, the category name under it
+(`components/ProductPhoto.tsx`). Compact thumbnails (staff table, Match me, impact cards, flyer list, next-need card,
+purchase cards, intake options) show only the tinted icon. The text colour is used for the icon and the name; every
+pair passes AA for small text. `role="img"`, `aria-label` "No photo for Canned tuna (Food)".
+
+| Category | Label | Icon (lucide) | Background | Text / icon | Contrast |
+|---|---|---|---|---|---|
+| `food` | Food | `Apple` | `--category-food-bg` `#FDF0E1` | `--category-food-text` `#8A4510` | 6.4:1 |
+| `hygiene` | Hygiene | `Droplets` | `--category-hygiene-bg` `#E3F3F6` | `--category-hygiene-text` `#1C5E6E` | 6.4:1 |
+| `baby` | Baby | `Baby` | `--category-baby-bg` `#FCEAF0` | `--category-baby-text` `#8C3256` | 6.7:1 |
+| `clothing` | Clothing | `Shirt` | `--category-clothing-bg` `#EAEDFB` | `--category-clothing-text` `#3B478C` | 7.3:1 |
+| `bedding` | Bedding | `BedDouble` | `--category-bedding-bg` `#EFEAF8` | `--category-bedding-text` `#5A3D85` | 7.3:1 |
+| `school` | School supplies | `Backpack` | `--category-school-bg` `#FAF3D7` | `--category-school-text` `#6E540A` | 6.4:1 |
+| `pet` | Pet supplies | `PawPrint` | `--category-pet-bg` `#F4ECE2` | `--category-pet-text` `#6B4728` | 7.0:1 |
+| `medical` | Medical | `Pill` | `--category-medical-bg` `#E6F0FA` | `--category-medical-text` `#1F4F80` | 7.3:1 |
+| `household` | Household | `House` | `--category-household-bg` `#E7F3EA` | `--category-household-text` `#2D6140` | 6.4:1 |
+| `other` | Other | `Package` | `--category-other-bg` `#F1EFEA` | `--category-other-text` `#4A4F57` | 7.2:1 |
+
+Tailwind: `bg-category-food-bg text-category-food-text`, and so on. Printed flyers drop the tint (black on white).
+
+- "Not switched on yet" notice (a staff list whose server route doesn't exist yet, `ErrorState tone="notice"`): a
+  `--badge-low-bg` / `--badge-low-text` clock icon instead of the red alert icon, `role="status"`.
+
 ## Status badges (background / text)
 
 | Status | Background | Text | CSS variables |

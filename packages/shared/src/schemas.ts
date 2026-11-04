@@ -95,6 +95,8 @@ export const NeedCard = z.object({
   deadlineAt: IsoDate.nullable(),
   createdAt: IsoDate,
   updatedAt: IsoDate,
+  /** v1.1.0: arrival photo of a delivered need (passed the AI check or confirmed by staff); null otherwise. The API always sends it. */
+  deliveryPhotoUrl: z.url().nullable().optional(),
 });
 export type NeedCard = z.infer<typeof NeedCard>;
 export const NeedRes = z.object({ need: NeedCard });
@@ -193,7 +195,21 @@ export const PurchaseOffer = z.object({
   unitPriceCents: Cents,
   inStock: z.boolean().nullable(),
 });
+/** v1.1.0: how the price compares with what donors funded, and what happens to the money. */
+export const PriceChange = z.enum(["same", "cheaper", "pricier"]);
+export type PriceChange = z.infer<typeof PriceChange>;
+export const PlannedMoney = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("exact") }),
+  z.object({ kind: z.literal("surplus"), cents: Cents, nextNeed: NeedCard.nullable() }),
+  z.object({ kind: z.literal("gap"), cents: Cents }),
+]);
+export type PlannedMoney = z.infer<typeof PlannedMoney>;
+export const PurchasePlanSummary = z.object({ priceChange: PriceChange, money: PlannedMoney });
+export type PurchasePlanSummary = z.infer<typeof PurchasePlanSummary>;
+
 export const PurchaseView = z.object({
+  /** v1.1.0: filled by the server for `proposed` purchases (recomputed on every read); null otherwise. */
+  plan: PurchasePlanSummary.nullable().optional(),
   id: Id,
   needId: Id,
   status: z.enum(PURCHASE_STATUSES),
@@ -288,14 +304,14 @@ export const PatchNeedReq = z
   .partial();
 export type PatchNeedReq = z.infer<typeof PatchNeedReq>;
 
+/** v1.1.0 (P1, used by B's purchase-plan route): re-check with one of the server's own alternatives. */
+export const PurchasePlanReq = z.object({ offerChannel3Id: z.string().min(1).max(200).optional() });
+export type PurchasePlanReq = z.infer<typeof PurchasePlanReq>;
+
 export const PurchasePlanRes = z.object({
   purchase: PurchaseView, // status "proposed"
-  priceChange: z.enum(["same", "cheaper", "pricier"]),
-  money: z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("exact") }),
-    z.object({ kind: z.literal("surplus"), cents: Cents, nextNeed: NeedCard.nullable() }),
-    z.object({ kind: z.literal("gap"), cents: Cents }),
-  ]),
+  priceChange: PriceChange,
+  money: PlannedMoney,
   alternatives: z.array(PurchaseOffer).max(3),
 });
 export type PurchasePlanRes = z.infer<typeof PurchasePlanRes>;
@@ -303,7 +319,18 @@ export type PurchasePlanRes = z.infer<typeof PurchasePlanRes>;
 export const ApprovePurchaseRes = z.object({
   purchase: PurchaseView,
   need: NeedCard,
-  surplusMoved: z.object({ toNeedId: Id, toNeedTitle: z.string(), amountCents: Cents }).nullable(),
+  /**
+   * amountCents = TOTAL moved off this need. toNeedId/toNeedTitle = the first (most urgent) need that received money;
+   * v1.1.0 `moves` lists every need and amount. Money that couldn't be placed stays on this need and isn't counted.
+   */
+  surplusMoved: z
+    .object({
+      toNeedId: Id,
+      toNeedTitle: z.string(),
+      amountCents: Cents,
+      moves: z.array(z.object({ needId: Id, needTitle: z.string(), amountCents: Cents })).optional(),
+    })
+    .nullable(),
   gapCents: Cents.nullable(),
 });
 export type ApprovePurchaseRes = z.infer<typeof ApprovePurchaseRes>;
@@ -406,6 +433,9 @@ export const SponsorInvoiceView = z.object({
   createdAt: IsoDate,
 });
 export const SponsorInvoiceListRes = z.object({ invoices: z.array(SponsorInvoiceView) });
+/** v1.1.0: `AgentAction.result` of an executed create_invoice / send_invoice action (null when failed). */
+export const CreateInvoiceResult = z.object({ sponsorInvoice: SponsorInvoiceView });
+export type CreateInvoiceResult = z.infer<typeof CreateInvoiceResult>;
 
 // ---------- dashboard datasets (B) — NO personal data ----------
 export const DatasetNeedRow = z.object({

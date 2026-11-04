@@ -1,7 +1,7 @@
 import { formatUsd, STAFF_KEY_STORAGE, type AgentChatReq, type ReconcileReport } from "@needgrid/shared";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { http } from "msw";
+import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CHAT_TRANSCRIPT_STORAGE } from "@/lib/chatTranscript";
 import { RATE_LIMITED_MESSAGE } from "@/lib/ndjson";
@@ -61,6 +61,24 @@ function driveChat() {
   );
   return { reply, bodies };
 }
+
+describe("Assistant: pending approvals when the server has no actions route", () => {
+  it("a Fastify 404 shows 'Not available yet' calmly, with Try again", async () => {
+    server.use(
+      http.get("http://api.test/api/staff/agent/actions", () =>
+        HttpResponse.json({ message: "Route not found", error: "Not Found", statusCode: 404 }, { status: 404 }),
+      ),
+    );
+    await openAssistant();
+    const heading = await within(pending()).findByRole("heading", { name: "Not available yet" }, { timeout: 5_000 });
+    const section = heading.closest("section");
+    if (!section) throw new Error("expected the notice box");
+    expect(section).toHaveAttribute("role", "status");
+    expect(section).toHaveTextContent("This part isn't switched on yet.");
+    expect(within(pending()).queryByText("We couldn't load your approvals")).not.toBeInTheDocument();
+    expect(within(pending()).getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+});
 
 describe("Assistant: the invoice scene (mock mode, Room 12)", () => {
   it("prompt → streamed reply → approval card inline and pending → approve → payer link + QR → held tiles", async () => {

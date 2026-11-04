@@ -8,6 +8,7 @@
 import type { AllocationReason, NeedStatus } from "@needgrid/shared";
 import { and, eq, gt, ne, sql } from "drizzle-orm";
 import { listDonatableNeeds, type Executor } from "../core/needs";
+import { isConnectFailure } from "../lib/dbErrors";
 import { allocations, needs, reservations, type NeedRow } from "../db/schema";
 
 export const DONATABLE: readonly NeedStatus[] = ["open", "topping_up"];
@@ -95,14 +96,22 @@ export async function allocate(
 
 /**
  * Give `cents` of a donation to the org's most urgent donatable needs (max 10), filling each
- * up to its room. Holds of other donors are respected. Returns what couldn't be placed.
+ * up to its room. Holds of other donors are respected. Returns what couldn't be placed and where the rest went.
+ * `relatedAllocationId` links every positive row to the negative row it came from (price_drop / rollover moves).
  */
 export async function distribute(
   tx: Executor,
-  d: { donationId: string; orgId: string; cents: number; reason: AllocationReason; excludeNeedId?: string },
-): Promise<{ leftoverCents: number; needIds: string[] }> {
+  d: {
+    donationId: string;
+    orgId: string;
+    cents: number;
+    reason: AllocationReason;
+    excludeNeedId?: string;
+    relatedAllocationId?: string;
+  },
+): Promise<{ leftoverCents: number; needIds: string[]; placed: Array<{ needId: string; cents: number }> }> {
   let left = d.cents;
-  const touched: string[] = [];
+  const placed: Array<{ needId: string; cents: number }> = [];
   const candidates = await listDonatableNeeds({ orgId: d.orgId, excludeNeedId: d.excludeNeedId, limit: 10 }, tx);
   for (const candidate of candidates) {
     if (left === 0) break;
@@ -110,11 +119,17 @@ export async function distribute(
     if (!need) continue;
     const give = Math.min(left, await roomCents(tx, need));
     if (give <= 0) continue;
-    await allocate(tx, { donationId: d.donationId, needId: need.id, cents: give, reason: d.reason });
-    touched.push(need.id);
+    await allocate(tx, {
+      donationId: d.donationId,
+      needId: need.id,
+      cents: give,
+      reason: d.reason,
+      relatedAllocationId: d.relatedAllocationId,
+    });
+    placed.push({ needId: need.id, cents: give });
     left -= give;
   }
-  return { leftoverCents: left, needIds: touched };
+  return { leftoverCents: left, needIds: placed.map((p) => p.needId), placed };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -129,17 +144,25 @@ export function pgErrorCode(err: unknown): string | undefined {
 const RETRYABLE = new Set(["40P01" /* deadlock_detected */, "40001" /* serialization_failure */]);
 
 /**
- * Re-run a whole transaction when Postgres aborts it for a deadlock (possible when two
- * overflows lock the same needs in different orders). The function must be safe to repeat.
+ * Re-run a whole transaction when Postgres aborts it for a deadlock (possible when two overflows lock the
+ * same needs in different orders), or when the connection couldn't even be OPENED (DNS/network blip, Neon
+ * waking up), with a longer backoff for the latter (1 s, 2 s, 4 s, 8 s).
+ *
+ * Deliberately NOT retried: a connection that drops mid-transaction. The COMMIT may already have succeeded,
+ * and running the money logic again could apply it twice. Those surface as 503 "try again" instead.
+ * The function must be safe to repeat and must not call PayPal inside.
  */
-export async function withTxRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
+export async function withTxRetry<T>(fn: () => Promise<T>, attempts = 5): Promise<T> {
   for (let i = 1; ; i++) {
     try {
       return await fn();
     } catch (err) {
       const code = pgErrorCode(err);
-      if (!code || !RETRYABLE.has(code) || i >= attempts) throw err;
-      await new Promise((r) => setTimeout(r, 25 * i + Math.floor(Math.random() * 50)));
+      const deadlock = code !== undefined && RETRYABLE.has(code);
+      const connectFailed = isConnectFailure(err);
+      if ((!deadlock && !connectFailed) || i >= attempts) throw err;
+      const delay = connectFailed ? 1000 * 2 ** (i - 1) : 100 * i;
+      await new Promise((r) => setTimeout(r, delay + Math.floor(Math.random() * 100)));
     }
   }
 }

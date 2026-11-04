@@ -40,10 +40,12 @@ export function BigTile({ need, highlight }: BigTileProps) {
     >
       <ProductPhoto
         product={need.product}
+        category={need.category}
         loading="eager"
         className="size-[8.75rem] rounded-[0.875rem] border"
         placeholderClassName="rounded-[0.875rem]"
         iconClassName="size-11"
+        labelClassName="text-sm"
       />
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         <h2 id={titleId} className="line-clamp-2 text-[1.75rem] leading-[1.15] font-extrabold">

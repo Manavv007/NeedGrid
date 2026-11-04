@@ -10,16 +10,18 @@
  *      retries later; processing is idempotent, so a retry is always safe.
  *
  * Webhooks are a BACKUP for the capture response (donor closed the page before capture finished),
- * and in Phase 9 the only signal that a sponsor invoice was paid.
+ * and the only signal that a sponsor invoice was paid.
  */
 import { payPalValueToCents } from "@needgrid/shared";
 import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { db } from "../db/client";
-import { reservations, webhookEvents } from "../db/schema";
+import { reservations, sponsorInvoices, webhookEvents } from "../db/schema";
 import { HttpError } from "../lib/http";
 import { recordCapture } from "../money/capture";
+import { recordInvoicePaid } from "../money/invoices";
+import { invoicesGateway } from "../paypal/invoices";
 import { readWebhookHeaders, webhookVerifier } from "../paypal/webhooks";
 
 declare module "fastify" {
@@ -45,6 +47,11 @@ const CaptureResource = z.object({
 });
 
 const isUuid = (s: string) => z.uuid().safeParse(s).success;
+
+const InvoiceResource = z.object({
+  id: z.string().min(1).optional(),
+  invoice: z.object({ id: z.string().min(1) }).optional(),
+});
 
 /** PAYMENT.CAPTURE.COMPLETED: record the donation if the page's capture call didn't (idempotent). */
 async function handleCaptureCompleted(resource: unknown): Promise<string> {
@@ -76,16 +83,41 @@ async function handleCaptureCompleted(resource: unknown): Promise<string> {
   return `donation ${result.donationId}`;
 }
 
+/**
+ * INVOICING.INVOICE.PAID: a sponsor paid. We only take the invoice id from the event and ask PayPal for the
+ * invoice itself (status, amount paid, payment id): the event body's shape varies, the invoice is the truth.
+ */
+async function handleInvoicePaid(resource: unknown): Promise<string> {
+  const r = InvoiceResource.parse(resource);
+  const invoiceId = r.invoice?.id ?? r.id;
+  if (!invoiceId) throw new Error("invoice event has no invoice id");
+  const [ours] = await db
+    .select({ id: sponsorInvoices.id })
+    .from(sponsorInvoices)
+    .where(eq(sponsorInvoices.paypalInvoiceId, invoiceId))
+    .limit(1);
+  if (!ours) return "ignored: not a NeedGrid sponsor invoice";
+
+  const state = await invoicesGateway().getInvoiceStatus(invoiceId);
+  if (state.status !== "PAID") return `ignored: invoice status ${state.status}`;
+  if (!state.paidCents) throw new Error(`invoice ${invoiceId} is PAID but has no paid amount`);
+  const result = await recordInvoicePaid({
+    paypalInvoiceId: invoiceId,
+    transactionId: state.transactionId ?? `invoice-${invoiceId}`,
+    paidCents: state.paidCents,
+  });
+  return result.kind === "unknown" ? "ignored: not a NeedGrid sponsor invoice" : `${result.kind}: ${result.donationId}`;
+}
+
 export async function processPayPalEvent(event: PayPalEvent): Promise<string> {
   switch (event.event_type) {
     case "PAYMENT.CAPTURE.COMPLETED":
       return handleCaptureCompleted(event.resource);
     case "PAYMENT.CAPTURE.REFUNDED":
-      // Refunds are recorded when our own executor runs them (Phase 10); this is just a receipt.
+      // Refunds are recorded when our own executor runs them (agent/executors.ts); this is just a receipt.
       return "logged: refund";
     case "INVOICING.INVOICE.PAID":
-      // Sponsor invoices arrive in Phase 9. No invoices exist before then.
-      return "logged: invoice paid (handler arrives in Phase 9)";
+      return handleInvoicePaid(event.resource);
     default:
       return `ignored: ${event.event_type}`;
   }
@@ -104,47 +136,53 @@ export async function paypalWebhookRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post("/api/webhooks/paypal", async (req, reply) => {
-    const raw = req.rawBody;
-    if (!raw) throw new HttpError(400, "VALIDATION", "Expected a JSON body");
-    const parsed = EventSchema.safeParse(req.body);
-    if (!parsed.success) throw new HttpError(400, "VALIDATION", "Not a PayPal webhook event");
-    const event = parsed.data;
-    const headers = readWebhookHeaders(req.headers);
-    if (!headers) throw new HttpError(400, "VALIDATION", "Missing PayPal transmission headers");
+  // Each request makes us call PayPal's verify API, so cap it (PayPal's own retries stay far below this).
+  app.post(
+    "/api/webhooks/paypal",
+    { config: { rateLimit: { max: 300, timeWindow: "1 minute" } } },
+    async (req, reply) => {
+      const raw = req.rawBody;
+      if (!raw) throw new HttpError(400, "VALIDATION", "Expected a JSON body");
+      const parsed = EventSchema.safeParse(req.body);
+      if (!parsed.success) throw new HttpError(400, "VALIDATION", "Not a PayPal webhook event");
+      const event = parsed.data;
+      const headers = readWebhookHeaders(req.headers);
+      if (!headers) throw new HttpError(400, "VALIDATION", "Missing PayPal transmission headers");
 
-    const log = req.log.child({ paypalEventId: event.id, eventType: event.event_type });
-    if (!(await webhookVerifier().verify(headers, raw))) {
-      log.warn("webhook rejected: signature not verified");
-      throw new HttpError(400, "VALIDATION", "Webhook signature could not be verified");
-    }
+      const log = req.log.child({ paypalEventId: event.id, eventType: event.event_type });
+      if (!(await webhookVerifier().verify(headers, raw))) {
+        log.warn("webhook rejected: signature not verified");
+        throw new HttpError(400, "VALIDATION", "Webhook signature could not be verified");
+      }
 
-    const [inserted] = await db
-      .insert(webhookEvents)
-      .values({ paypalEventId: event.id, type: event.event_type, payload: req.body, verified: true })
-      .onConflictDoNothing()
-      .returning();
-    const row =
-      inserted ?? (await db.select().from(webhookEvents).where(eq(webhookEvents.paypalEventId, event.id)).limit(1))[0];
-    if (!row) throw new Error("webhook event row vanished");
-    if (row.processedAt) {
-      log.info("webhook duplicate: already processed");
-      return reply.send({ ok: true, duplicate: true });
-    }
+      const [inserted] = await db
+        .insert(webhookEvents)
+        .values({ paypalEventId: event.id, type: event.event_type, payload: req.body, verified: true })
+        .onConflictDoNothing()
+        .returning();
+      const row =
+        inserted ??
+        (await db.select().from(webhookEvents).where(eq(webhookEvents.paypalEventId, event.id)).limit(1))[0];
+      if (!row) throw new Error("webhook event row vanished");
+      if (row.processedAt) {
+        log.info("webhook duplicate: already processed");
+        return reply.send({ ok: true, duplicate: true });
+      }
 
-    try {
-      const outcome = await processPayPalEvent(event);
-      await db
-        .update(webhookEvents)
-        .set({ processedAt: sql`now()`, error: null })
-        .where(eq(webhookEvents.id, row.id));
-      log.info({ outcome }, "webhook processed");
-      return reply.send({ ok: true });
-    } catch (err) {
-      const message = (err as Error).message.slice(0, 500);
-      await db.update(webhookEvents).set({ error: message }).where(eq(webhookEvents.id, row.id));
-      log.error({ err }, "webhook processing failed; PayPal will retry");
-      throw new HttpError(500, "INTERNAL", "Webhook processing failed");
-    }
-  });
+      try {
+        const outcome = await processPayPalEvent(event);
+        await db
+          .update(webhookEvents)
+          .set({ processedAt: sql`now()`, error: null })
+          .where(eq(webhookEvents.id, row.id));
+        log.info({ outcome }, "webhook processed");
+        return reply.send({ ok: true });
+      } catch (err) {
+        const message = (err as Error).message.slice(0, 500);
+        await db.update(webhookEvents).set({ error: message }).where(eq(webhookEvents.id, row.id));
+        log.error({ err }, "webhook processing failed; PayPal will retry");
+        throw new HttpError(500, "INTERNAL", "Webhook processing failed");
+      }
+    },
+  );
 }

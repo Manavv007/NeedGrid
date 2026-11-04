@@ -79,7 +79,8 @@ Where things go: **decisions** → this table. **Requests and action items for a
 - **`z.coerce.number()` can't be piped after a string transform in zod v4** (type error). Write a custom `.transform` with
   `ctx.addIssue` instead (see `optionalPositiveInt` in `env.ts`).
 - **`@paypal/agent-toolkit` 1.11 peers on `ai@^4` and `zod@^3`**; we use `ai@7` and `zod@4`. It is NOT installed. Phase 8
-  must call its tools carefully or fall back to plain REST behind the same function signatures. Never give its tools to a model.
+  uses plain REST behind small gateways instead (`paypal/invoices.ts`, `paypal/refunds.ts`), so there is no
+  `paypal/toolkit.ts`. Never give PayPal tools to a model.
 
 ## 4. Neon / Postgres / Drizzle
 
@@ -112,6 +113,13 @@ Where things go: **decisions** → this table. **Requests and action items for a
 - **Deadlocks are possible** when overflow locks several needs in different orders. `withTxRetry` re-runs the whole
   transaction on `40P01` / `40001`. Anything inside must be safe to repeat (no PayPal calls inside transactions).
 - **Never hold a row lock while calling PayPal.** Create the hold, COMMIT, then call PayPal; on failure release the hold.
+- **Retry only connect-phase failures** (ENOTFOUND, EAI_AGAIN, ECONNREFUSED, connect ETIMEDOUT, pool connect timeout),
+  with real backoff (1, 2, 4, 8 s). 100–400 ms retries were too fast for a DNS blip. Never retry a connection that dropped
+  mid-transaction: the COMMIT may already have happened. (`lib/dbErrors.ts`, `withTxRetry` in `money/ledger.ts`.)
+- **Each vitest run gets a private database** `needgrid_run_<ts>_<rand>` (`test/runDb.ts`), dropped at teardown, so two
+  people or two runs on the `test` branch can't delete each other's rows. Stale ones older than 3 h are cleaned up.
+- **Drizzle prints `${needs.id}` as a bare `"id"`** in single-table selects. Inside a subquery that bound to the outer
+  table's `id` and silently ignored holds. Write `"needs"."id"` explicitly in raw SQL subqueries.
 
 ## 5. Money rules in code (things that are easy to break)
 
@@ -126,6 +134,15 @@ Where things go: **decisions** → this table. **Requests and action items for a
   gets no row → returns the existing donation. Same for `webhook_events.paypal_event_id`.
 - **Overflow must respect other donors' holds** (`roomCents` subtracts holds). A test covers it; keep it.
 - **Closing a need with money attached is refused** (would strand donors' money until refunds exist in Phase 10).
+- **Money actions run in three steps** (`agent/executors.ts`): (1) one transaction locks the action and re-checks the
+  stored amounts against the database (changed → `failed`, PayPal never called) and reserves (sponsor holds, or the
+  `approved` status that blocks a second refund of the same donation); (2) PayPal with no transaction open; (3) one
+  transaction saves the money effects and the final status. Approve reads no body: amounts come only from `computed`.
+- **Roll-over never sends money anywhere by itself** (`jobs/rollover.ts`, every 10 min, `pnpm --filter @needgrid/api
+  job:rollover` for demos). A need past its deadline and underfunded is closed in one transaction: consenting donors'
+  share → `rollover` −/+ pairs to the most urgent open needs; the rest → `unallocated` + ONE system `create_refund`
+  proposal per donation for its full unallocated total (older proposed system refunds of that donation → `failed`).
+  Seed and invoice money is set aside without a proposal (create_refund only handles PayPal checkout donations).
 
 ## 6. PayPal (sandbox)
 
@@ -146,6 +163,23 @@ Where things go: **decisions** → this table. **Requests and action items for a
 - **Unverified webhook events are not stored**, so a forged request can't occupy a real event id in the dedupe table.
 - **Transaction Search must be enabled on the app** (Apps & Credentials → app → Features) for reconcile (Phase 7).
   Check: the OAuth token's `scope` contains `reporting/search/read`.
+- **Invoicing v2, verified against the sandbox (Nov 4):** create → 201 with the full invoice (`id` = `INV2-…`); send →
+  200 with `{ href, rel: "payer-view" }` (the pay link); GET after send → `status: "SENT"`,
+  `detail.metadata.recipient_view_url`. **`generate-qr-code` answers 406 to `accept: application/json`**: it returns a
+  multipart body with the base64 PNG. → `paypalFetch(..., { responseType: "text" })` sends `accept: */*`;
+  `qrDataUrlFrom` extracts it. QR codes only exist for SENT invoices.
+- **A failed PayPal call doesn't always mean nothing happened.** If "send invoice" times out, the invoice may have been
+  sent. We GET its status before releasing the sponsor holds; if we can't tell, the holds stay and the error says so.
+  Same idea for refunds: a refund PayPal accepted is always recorded, and if saving fails the action stays `approved`
+  with an error instead of turning `failed`.
+- **Invoice paid = trust PayPal's invoice, not the event body.** The `INVOICING.INVOICE.PAID` handler takes only the
+  invoice id from the event, then GETs the invoice (status must be `PAID`; amount = `payments.paid_amount`; payment id
+  = last `payments.transactions[].payment_id`). Unknown invoice ids are ignored without calling PayPal.
+- **To pay a sponsor invoice in the sandbox**, the invoice's recipient email must be the sandbox PERSONAL account's
+  email; open the `payerViewUrl` and log in as that buyer. **That buyer must be a US account.** Our sandbox accounts
+  were created in India, and sending a USD invoice to an Indian personal account fails with a misleading
+  `406 MEDIA_TYPE_NOT_ACCEPTABLE`; the real reason is the issue code `INR_FOREIGN_CURRENCY_BLOCKED`. Error messages now
+  include issue codes (with a plain-English hint for known ones), so read those first.
 - **Sandbox can be flaky from this network** (connect timeouts). Retry once before assuming a code problem.
 
 ## 7. Fastify
@@ -160,9 +194,30 @@ Where things go: **decisions** → this table. **Requests and action items for a
   then `addContentTypeParser(..., { parseAs: "string" })`. Other routes keep the normal parser.
 - **Rate limits key on `req.ip`**; `trustProxy: true` makes it the real client IP on Render. In tests, send a different
   `x-forwarded-for` per request (`nextIp()`) or the per-IP limit trips.
+- **Known limitation: with `trustProxy: true`, `req.ip` is the LEFTMOST `X-Forwarded-For` entry, which a client can
+  set itself.** So per-IP limits slow down casual abuse but not a determined attacker. The fix is a hop count
+  (`trustProxy: N`) or a header the edge overwrites (`cf-connecting-ip` / `true-client-ip`), but Render's chain isn't
+  documented: verify on the live service before changing it, or every user would share one rate-limit bucket.
+- **Security pass (Nov 6):** wrong staff passcodes are limited to 20 per IP per 10 min (then 429, even for the right
+  key); capture 60/min, impact 60/min, webhook 300/min (each webhook costs a PayPal verify call); every response gets
+  `nosniff`, `x-frame-options: DENY`, `referrer-policy: no-referrer`; `/api/staff/*` responses get
+  `cache-control: no-store`; logs also redact `cookie`.
 - **SSE can't be tested with `app.inject`**: listen on port 0 and use real `fetch`.
 
 ## 8. Tests
+
+- **Neon connects from this laptop time out now and then** (`connect ETIMEDOUT`, sometimes as an `AggregateError` with an
+  EMPTY message, because Node tried IPv4 and IPv6 and both failed). In a full run that made 8+ tests fail in different
+  places each time, and a donor in the race test got a blank `500 INTERNAL`. Fixes: `withTxRetry` now also retries
+  connection errors (safe, because a failed transaction rolls back), the error handler answers `503 UPSTREAM` "database briefly
+  unavailable" instead of a blank 500 (`lib/dbErrors.ts`), test setup retries connects, and pools have `query_timeout`.
+  → **If a run shows scattered failures, look for `ETIMEDOUT` first and rerun that file alone** before debugging logic.
+- **Never wait on a full `pnpm test` from an agent command.** It takes 15–25 min against Neon and looked like a hang.
+  Run DB test files one or a few at a time (`npx vitest run src/money/purchases.test.ts` in `apps/api`), each takes 1–4 min.
+  Vitest only prints failure details at the END of a run, so a killed run shows ✓/× but no reasons.
+- **Each developer needs their OWN `TEST_DATABASE_URL` branch** (e.g. Neon `test-a`, `test-b`, `test-c`). Two runs on the
+  same branch truncate each other's rows and fail with "Need not found" or foreign-key errors that look like real bugs.
+  If you copied someone's `.env`, change `TEST_DATABASE_URL` to your own branch.
 
 - **DB tests run against Neon from a laptop: ~250 ms per round trip.** Money tests make 20–40 round trips, so the default
   30 s timeout flaked (a *different* test failed each run). → `testTimeout`/`hookTimeout` 120 s in `vitest.config.ts`.
