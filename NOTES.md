@@ -171,7 +171,10 @@ Where things go: **decisions** → this table. **Requests and action items for a
   invoice id from the event, then GETs the invoice (status must be `PAID`; amount = `payments.paid_amount`; payment id
   = last `payments.transactions[].payment_id`). Unknown invoice ids are ignored without calling PayPal.
 - **To pay a sponsor invoice in the sandbox**, the invoice's recipient email must be the sandbox PERSONAL account's
-  email; open the `payerViewUrl` and log in as that buyer.
+  email; open the `payerViewUrl` and log in as that buyer. **That buyer must be a US account.** Our sandbox accounts
+  were created in India, and sending a USD invoice to an Indian personal account fails with a misleading
+  `406 MEDIA_TYPE_NOT_ACCEPTABLE`; the real reason is the issue code `INR_FOREIGN_CURRENCY_BLOCKED`. Error messages now
+  include issue codes (with a plain-English hint for known ones), so read those first.
 - **Sandbox can be flaky from this network** (connect timeouts). Retry once before assuming a code problem.
 
 ## 7. Fastify
