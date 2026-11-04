@@ -2,7 +2,7 @@
  * System-originated refund proposals (money that has nowhere to go).
  *
  * Like every money action this only creates an `agent_actions` row with status "proposed":
- * nothing is sent to PayPal until a staff member approves it (executor arrives in Phase 10).
+ * nothing is sent to PayPal until a staff member approves it (agent/executors.ts → money/refunds.ts).
  * Runs inside the caller's transaction.
  */
 import { CreateRefundArgs, formatUsd, type ActionPreview } from "@needgrid/shared";

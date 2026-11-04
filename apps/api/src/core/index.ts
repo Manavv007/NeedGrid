@@ -2,7 +2,8 @@
  * The ONLY write API that B's code (apps/api/src/ai, scripts/seed) may use.
  * Signatures are a contract (AGENT_A_BACKEND.md §7.2): don't change them without telling B.
  *
- * Status: every function is implemented. Approve/reject/execute of proposed actions arrive in Phase 8.
+ * Status: every function is implemented. Approve/reject/execute of proposed actions are staff-only HTTP routes
+ * (routes/actions.ts → agent/executors.ts) and are deliberately NOT exported here: the assistant can only propose.
  */
 import type { AgentAction, DeliveryView, MoneyTool, NeedCard, PurchaseOffer, PurchaseView } from "@needgrid/shared";
 import * as actionsCore from "../agent/actions";

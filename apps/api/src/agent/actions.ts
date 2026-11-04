@@ -7,7 +7,7 @@
  *   - computes every amount on the server into `computed` (the AI never supplies amounts)
  *   - builds a human-readable `preview` showing every argument and every computed amount
  *   - inserts the row with status "proposed"
- * It NEVER calls PayPal. Approve/reject (Phase 8) run or discard the stored action with exactly these values.
+ * It NEVER calls PayPal. Approve/reject (agent/executors.ts) run or discard the stored action with exactly these values.
  */
 import {
   AgentAction,
@@ -22,8 +22,9 @@ import {
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { z } from "zod";
 import { db } from "../db/client";
-import { agentActions, allocations, donations, needs, sponsorInvoices, type AgentActionRow } from "../db/schema";
+import { agentActions, needs, sponsorInvoices, type AgentActionRow } from "../db/schema";
 import { HttpError } from "../lib/http";
+import { refundableParts } from "../money/refunds";
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
@@ -151,38 +152,8 @@ async function planSendInvoice(orgId: string, raw: unknown): Promise<Proposal> {
 }
 
 // ---------------------------------------------------------------------------------------------
-// create_refund: give back what a donation can still give back
+// create_refund: give back what a donation can still give back (rules in money/refunds.ts)
 // ---------------------------------------------------------------------------------------------
-
-/**
- * Refundable = unallocated money + the donation's net share of needs not yet bought (open/topping_up/funded).
- * Money on ordered/delivered needs has been spent and can't be refunded. Invoice donations are refunded by
- * the sponsor-invoice flow, not here.
- */
-export async function refundableParts(donationId: string, ex: typeof db = db) {
-  const [don] = await ex.select().from(donations).where(eq(donations.id, donationId)).limit(1);
-  if (!don) return null;
-  const perNeed = await ex
-    .select({
-      needId: allocations.needId,
-      title: needs.title,
-      status: needs.status,
-      cents: sql<number>`sum(${allocations.amountCents})::int`,
-    })
-    .from(allocations)
-    .innerJoin(needs, eq(needs.id, allocations.needId))
-    .where(eq(allocations.donationId, donationId))
-    .groupBy(allocations.needId, needs.title, needs.status)
-    .having(sql`sum(${allocations.amountCents}) > 0`);
-  const fromNeeds = perNeed
-    .filter((p) => ["open", "topping_up", "funded"].includes(p.status))
-    .map((p) => ({ kind: "need" as const, needId: p.needId, title: p.title, cents: p.cents }));
-  const parts = [
-    ...(don.unallocatedCents > 0 ? [{ kind: "unallocated" as const, cents: don.unallocatedCents }] : []),
-    ...fromNeeds,
-  ];
-  return { donation: don, parts, refundCents: parts.reduce((s, p) => s + p.cents, 0) };
-}
 
 async function planRefund(orgId: string, raw: unknown): Promise<Proposal> {
   const parsed = CreateRefundArgs.safeParse(raw);

@@ -79,7 +79,8 @@ Where things go: **decisions** → this table. **Requests and action items for a
 - **`z.coerce.number()` can't be piped after a string transform in zod v4** (type error). Write a custom `.transform` with
   `ctx.addIssue` instead (see `optionalPositiveInt` in `env.ts`).
 - **`@paypal/agent-toolkit` 1.11 peers on `ai@^4` and `zod@^3`**; we use `ai@7` and `zod@4`. It is NOT installed. Phase 8
-  must call its tools carefully or fall back to plain REST behind the same function signatures. Never give its tools to a model.
+  uses plain REST behind small gateways instead (`paypal/invoices.ts`, `paypal/refunds.ts`), so there is no
+  `paypal/toolkit.ts`. Never give PayPal tools to a model.
 
 ## 4. Neon / Postgres / Drizzle
 
@@ -133,6 +134,10 @@ Where things go: **decisions** → this table. **Requests and action items for a
   gets no row → returns the existing donation. Same for `webhook_events.paypal_event_id`.
 - **Overflow must respect other donors' holds** (`roomCents` subtracts holds). A test covers it; keep it.
 - **Closing a need with money attached is refused** (would strand donors' money until refunds exist in Phase 10).
+- **Money actions run in three steps** (`agent/executors.ts`): (1) one transaction locks the action and re-checks the
+  stored amounts against the database (changed → `failed`, PayPal never called) and reserves (sponsor holds, or the
+  `approved` status that blocks a second refund of the same donation); (2) PayPal with no transaction open; (3) one
+  transaction saves the money effects and the final status. Approve reads no body: amounts come only from `computed`.
 
 ## 6. PayPal (sandbox)
 
@@ -153,6 +158,15 @@ Where things go: **decisions** → this table. **Requests and action items for a
 - **Unverified webhook events are not stored**, so a forged request can't occupy a real event id in the dedupe table.
 - **Transaction Search must be enabled on the app** (Apps & Credentials → app → Features) for reconcile (Phase 7).
   Check: the OAuth token's `scope` contains `reporting/search/read`.
+- **Invoicing v2, verified against the sandbox (Nov 4):** create → 201 with the full invoice (`id` = `INV2-…`); send →
+  200 with `{ href, rel: "payer-view" }` (the pay link); GET after send → `status: "SENT"`,
+  `detail.metadata.recipient_view_url`. **`generate-qr-code` answers 406 to `accept: application/json`**: it returns a
+  multipart body with the base64 PNG. → `paypalFetch(..., { responseType: "text" })` sends `accept: */*`;
+  `qrDataUrlFrom` extracts it. QR codes only exist for SENT invoices.
+- **A failed PayPal call doesn't always mean nothing happened.** If "send invoice" times out, the invoice may have been
+  sent. We GET its status before releasing the sponsor holds; if we can't tell, the holds stay and the error says so.
+  Same idea for refunds: a refund PayPal accepted is always recorded, and if saving fails the action stays `approved`
+  with an error instead of turning `failed`.
 - **Sandbox can be flaky from this network** (connect timeouts). Retry once before assuming a code problem.
 
 ## 7. Fastify
