@@ -5,7 +5,7 @@ import { z } from "zod";
 import { buildApp } from "./app";
 import { hashStaffKey } from "./lib/crypto";
 import { HttpError } from "./lib/http";
-import type { StaffOrg } from "./plugins/staffAuth";
+import { STAFF_KEY_FAILURES, type StaffOrg } from "./plugins/staffAuth";
 
 const DEMO_KEY = "harbor-demo-2026";
 const demoOrg: StaffOrg = {
@@ -81,6 +81,30 @@ describe("staff auth (GET /api/staff/me)", () => {
     const res = await app.inject({ method: "GET", url: "/api/staff/me", headers: { "x-staff-key": DEMO_KEY } });
     expect(res.statusCode).toBe(200);
     expect(StaffMeRes.parse(res.json()).org.slug).toBe("harbor-food-bank");
+    expect(res.headers["cache-control"]).toBe("no-store"); // staff data is never cached
+  });
+  it("after 20 wrong passcodes from one IP → 429, even for the right key; other IPs are unaffected", async () => {
+    const from = (ip: string, key: string) =>
+      app.inject({ method: "GET", url: "/api/staff/me", headers: { "x-staff-key": key, "x-forwarded-for": ip } });
+    for (let i = 0; i < STAFF_KEY_FAILURES.max; i++)
+      expect((await from("10.9.9.9", `guess-${i}`)).statusCode).toBe(401);
+    const locked = await from("10.9.9.9", DEMO_KEY);
+    expect(locked.statusCode).toBe(429);
+    expect(ApiError.parse(locked.json()).error.code).toBe("RATE_LIMITED");
+    expect((await from("10.9.9.10", DEMO_KEY)).statusCode).toBe(200);
+  });
+});
+
+describe("security headers", () => {
+  it("every response is nosniff, unframeable and sends no referrer", async () => {
+    for (const url of ["/api/health", "/api/nope"]) {
+      const res = await app.inject({ method: "GET", url });
+      expect(res.headers).toMatchObject({
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "referrer-policy": "no-referrer",
+      });
+    }
   });
 });
 

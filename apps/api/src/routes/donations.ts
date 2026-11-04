@@ -19,13 +19,17 @@ export async function donationRoutes(app: FastifyInstance) {
   });
 
   // Idempotent: calling it again (page refresh) returns the same donation.
-  app.post("/api/donations/orders/:orderId/capture", async (req) => {
-    const { orderId } = OrderIdParams.parse(req.params);
-    if (!ORDER_ID.test(orderId)) throw notFound("Donation order");
-    return captureDonationOrder(orderId);
-  });
+  app.post(
+    "/api/donations/orders/:orderId/capture",
+    { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } },
+    async (req) => {
+      const { orderId } = OrderIdParams.parse(req.params);
+      if (!ORDER_ID.test(orderId)) throw notFound("Donation order");
+      return captureDonationOrder(orderId);
+    },
+  );
 
-  app.get("/api/impact/:token", async (req, reply) => {
+  app.get("/api/impact/:token", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (req, reply) => {
     const { token } = TokenParams.parse(req.params);
     reply.header("cache-control", "no-store");
     return getImpact(token);

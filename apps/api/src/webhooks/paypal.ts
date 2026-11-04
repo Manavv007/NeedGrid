@@ -136,47 +136,53 @@ export async function paypalWebhookRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post("/api/webhooks/paypal", async (req, reply) => {
-    const raw = req.rawBody;
-    if (!raw) throw new HttpError(400, "VALIDATION", "Expected a JSON body");
-    const parsed = EventSchema.safeParse(req.body);
-    if (!parsed.success) throw new HttpError(400, "VALIDATION", "Not a PayPal webhook event");
-    const event = parsed.data;
-    const headers = readWebhookHeaders(req.headers);
-    if (!headers) throw new HttpError(400, "VALIDATION", "Missing PayPal transmission headers");
+  // Each request makes us call PayPal's verify API, so cap it (PayPal's own retries stay far below this).
+  app.post(
+    "/api/webhooks/paypal",
+    { config: { rateLimit: { max: 300, timeWindow: "1 minute" } } },
+    async (req, reply) => {
+      const raw = req.rawBody;
+      if (!raw) throw new HttpError(400, "VALIDATION", "Expected a JSON body");
+      const parsed = EventSchema.safeParse(req.body);
+      if (!parsed.success) throw new HttpError(400, "VALIDATION", "Not a PayPal webhook event");
+      const event = parsed.data;
+      const headers = readWebhookHeaders(req.headers);
+      if (!headers) throw new HttpError(400, "VALIDATION", "Missing PayPal transmission headers");
 
-    const log = req.log.child({ paypalEventId: event.id, eventType: event.event_type });
-    if (!(await webhookVerifier().verify(headers, raw))) {
-      log.warn("webhook rejected: signature not verified");
-      throw new HttpError(400, "VALIDATION", "Webhook signature could not be verified");
-    }
+      const log = req.log.child({ paypalEventId: event.id, eventType: event.event_type });
+      if (!(await webhookVerifier().verify(headers, raw))) {
+        log.warn("webhook rejected: signature not verified");
+        throw new HttpError(400, "VALIDATION", "Webhook signature could not be verified");
+      }
 
-    const [inserted] = await db
-      .insert(webhookEvents)
-      .values({ paypalEventId: event.id, type: event.event_type, payload: req.body, verified: true })
-      .onConflictDoNothing()
-      .returning();
-    const row =
-      inserted ?? (await db.select().from(webhookEvents).where(eq(webhookEvents.paypalEventId, event.id)).limit(1))[0];
-    if (!row) throw new Error("webhook event row vanished");
-    if (row.processedAt) {
-      log.info("webhook duplicate: already processed");
-      return reply.send({ ok: true, duplicate: true });
-    }
+      const [inserted] = await db
+        .insert(webhookEvents)
+        .values({ paypalEventId: event.id, type: event.event_type, payload: req.body, verified: true })
+        .onConflictDoNothing()
+        .returning();
+      const row =
+        inserted ??
+        (await db.select().from(webhookEvents).where(eq(webhookEvents.paypalEventId, event.id)).limit(1))[0];
+      if (!row) throw new Error("webhook event row vanished");
+      if (row.processedAt) {
+        log.info("webhook duplicate: already processed");
+        return reply.send({ ok: true, duplicate: true });
+      }
 
-    try {
-      const outcome = await processPayPalEvent(event);
-      await db
-        .update(webhookEvents)
-        .set({ processedAt: sql`now()`, error: null })
-        .where(eq(webhookEvents.id, row.id));
-      log.info({ outcome }, "webhook processed");
-      return reply.send({ ok: true });
-    } catch (err) {
-      const message = (err as Error).message.slice(0, 500);
-      await db.update(webhookEvents).set({ error: message }).where(eq(webhookEvents.id, row.id));
-      log.error({ err }, "webhook processing failed; PayPal will retry");
-      throw new HttpError(500, "INTERNAL", "Webhook processing failed");
-    }
-  });
+      try {
+        const outcome = await processPayPalEvent(event);
+        await db
+          .update(webhookEvents)
+          .set({ processedAt: sql`now()`, error: null })
+          .where(eq(webhookEvents.id, row.id));
+        log.info({ outcome }, "webhook processed");
+        return reply.send({ ok: true });
+      } catch (err) {
+        const message = (err as Error).message.slice(0, 500);
+        await db.update(webhookEvents).set({ error: message }).where(eq(webhookEvents.id, row.id));
+        log.error({ err }, "webhook processing failed; PayPal will retry");
+        throw new HttpError(500, "INTERNAL", "Webhook processing failed");
+      }
+    },
+  );
 }

@@ -16,6 +16,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "check:money": "tsx --env-file-if-exists=.env src/money/checkMoney.ts",
+    "job:rollover": "tsx --env-file-if-exists=.env src/jobs/runRollover.ts",
     "seed": "tsx --env-file-if-exists=.env scripts/seed/index.ts",
     "evals": "tsx --env-file-if-exists=.env src/ai/evals/run.ts"
   },

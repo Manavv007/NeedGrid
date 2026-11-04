@@ -29,9 +29,27 @@ declare module "fastify" {
 }
 
 const MAX_KEY_LENGTH = 200;
+/** Wrong passcodes allowed per client IP per window, before answering 429 (slows down guessing). */
+export const STAFF_KEY_FAILURES = { max: 20, windowMs: 10 * 60_000 };
 
 export const staffAuthPlugin = fp(
   async (app: FastifyInstance, opts: { findOrgByStaffKeyHash: FindOrgByStaffKeyHash }) => {
+    // In memory: one API instance. Keyed by req.ip (trustProxy). Bounded so it can't grow without limit.
+    const failures = new Map<string, { count: number; resetAt: number }>();
+    const tooMany = (ip: string, now: number) => {
+      const f = failures.get(ip);
+      return Boolean(f && f.resetAt > now && f.count >= STAFF_KEY_FAILURES.max);
+    };
+    const recordFailure = (ip: string, now: number) => {
+      const f = failures.get(ip);
+      if (!f || f.resetAt <= now) {
+        if (failures.size >= 10_000) failures.clear();
+        failures.set(ip, { count: 1, resetAt: now + STAFF_KEY_FAILURES.windowMs });
+      } else {
+        f.count++;
+      }
+    };
+
     app.decorateRequest("staffOrg", undefined);
     app.decorate("requireStaff", async (req: FastifyRequest) => {
       const raw = req.headers[STAFF_KEY_HEADER];
@@ -39,9 +57,16 @@ export const staffAuthPlugin = fp(
       if (!key || key.length > MAX_KEY_LENGTH) {
         throw new HttpError(401, "UNAUTHORIZED", "Staff passcode required");
       }
+      const now = Date.now();
+      if (tooMany(req.ip, now)) {
+        throw new HttpError(429, "RATE_LIMITED", "Too many wrong passcodes. Try again in 10 minutes.");
+      }
       // Lookup is by unique hash, so the comparison happens in the database index.
       const org = await opts.findOrgByStaffKeyHash(hashStaffKey(key));
-      if (!org) throw new HttpError(401, "UNAUTHORIZED", "That staff passcode is not valid");
+      if (!org) {
+        recordFailure(req.ip, now);
+        throw new HttpError(401, "UNAUTHORIZED", "That staff passcode is not valid");
+      }
       req.staffOrg = org;
     });
   },

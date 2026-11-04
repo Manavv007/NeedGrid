@@ -6,6 +6,7 @@ import { allowedOrigins, env } from "./env";
 import { corsPlugin } from "./plugins/cors";
 import { errorHandlerPlugin } from "./plugins/errorHandler";
 import { rateLimitPlugin } from "./plugins/rateLimit";
+import { securityHeadersPlugin } from "./plugins/securityHeaders";
 import { staffAuthPlugin, type FindOrgByStaffKeyHash } from "./plugins/staffAuth";
 import { healthRoutes } from "./routes/health";
 import { actionRoutes } from "./routes/actions";
@@ -43,6 +44,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
               paths: [
                 'req.headers["x-staff-key"]',
                 "req.headers.authorization",
+                "req.headers.cookie",
                 'req.headers["paypal-transmission-sig"]',
                 'req.headers["paypal-cert-url"]',
                 'req.headers["paypal-auth-algo"]',
@@ -55,6 +57,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
 
   // Order matters: B's aiPlugin relies on CORS, rate-limit and staff auth already being registered.
   await app.register(errorHandlerPlugin, { exposeInternalErrors: env.NODE_ENV !== "production" });
+  await app.register(securityHeadersPlugin);
   await app.register(corsPlugin, { origins: allowedOrigins });
   await app.register(rateLimitPlugin);
   await app.register(staffAuthPlugin, {
