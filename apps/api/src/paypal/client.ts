@@ -66,8 +66,21 @@ function toPayPalError(status: number, body: unknown, fallback: string): PayPalA
   const issues = (b.details ?? []).map((d) => d.issue).filter((i): i is string => typeof i === "string");
   const name = b.name ?? b.error ?? null;
   const detail = b.message ?? b.error_description ?? fallback;
-  return new PayPalApiError(`PayPal request failed: ${detail}`, status, name, issues, b.debug_id ?? null);
+  const hint = issues.map((i) => ISSUE_HINTS[i] ?? i).join("; ");
+  return new PayPalApiError(
+    `PayPal request failed: ${detail}${hint ? ` (${hint})` : ""}`,
+    status,
+    name,
+    issues,
+    b.debug_id ?? null,
+  );
 }
+
+/** Plain-English reasons for PayPal issue codes staff have actually hit. Unknown codes are shown as-is. */
+const ISSUE_HINTS: Record<string, string> = {
+  INR_FOREIGN_CURRENCY_BLOCKED:
+    "INR_FOREIGN_CURRENCY_BLOCKED: the recipient's PayPal account is in India and can't pay a USD invoice; use a US account",
+};
 
 // ---------------------------------------------------------------------------------------------
 // OAuth token
