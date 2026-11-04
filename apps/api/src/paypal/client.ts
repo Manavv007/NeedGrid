@@ -141,6 +141,8 @@ export interface PayPalRequestOptions {
   /** Required for POST: makes retries (ours and the caller's) idempotent on PayPal's side. */
   requestId?: string;
   query?: Record<string, string>;
+  /** "text": return the raw response body as a string (e.g. the invoice QR code, which isn't JSON). */
+  responseType?: "json" | "text";
 }
 
 export async function paypalFetch<T = unknown>(
@@ -157,7 +159,7 @@ export async function paypalFetch<T = unknown>(
     const token = await getAccessToken();
     const headers: Record<string, string> = {
       authorization: `Bearer ${token}`,
-      accept: "application/json",
+      accept: opts.responseType === "text" ? "*/*" : "application/json",
       prefer: "return=representation",
     };
     // PayPal requires a JSON content type on every write, even body-less ones like capture (else 415).
@@ -190,6 +192,7 @@ export async function paypalFetch<T = unknown>(
       continue;
     }
 
+    if (res.ok && opts.responseType === "text") return { status: res.status, data: (await res.text()) as T };
     const data = await readJson(res);
     if (!res.ok) throw toPayPalError(res.status, data, `${method} ${url.pathname} returned ${res.status}`);
     return { status: res.status, data: data as T };
