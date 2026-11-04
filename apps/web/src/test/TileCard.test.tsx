@@ -109,8 +109,11 @@ describe("TileCard", () => {
     first.unmount();
 
     renderTile(card(IDS.peanutButter));
-    expect(screen.queryByRole("img")).not.toBeInTheDocument();
-    expect(screen.getByText("No photo yet")).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "Jif Creamy Peanut Butter, 40 oz" })).not.toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "No photo for Jif Creamy Peanut Butter, 40 oz (Food)" })).toHaveTextContent(
+      "Food",
+    );
+    expect(screen.queryByText("No photo yet")).not.toBeInTheDocument();
   });
 
   it("hides the deadline when there is none or it has passed", () => {

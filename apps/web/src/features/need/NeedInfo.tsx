@@ -30,11 +30,12 @@ export function NeedInfo({ need, org, delivery }: NeedInfoProps) {
     <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:gap-6">
       <ProductPhoto
         product={need.product}
+        category={need.category}
         loading="eager"
         className="h-50 w-full rounded-xl border p-4 sm:aspect-square sm:h-auto sm:max-w-90 sm:flex-[1_1_280px] sm:p-6"
         placeholderClassName="size-37.5 rounded-xl sm:size-[70%]"
         iconClassName="size-10 sm:size-11"
-        placeholderText={<span className="hidden text-[13px] sm:block">Product photo</span>}
+        labelClassName="text-[13px] sm:text-sm"
       />
       <div className="sm:flex-[1_1_280px]">{text}</div>
     </div>

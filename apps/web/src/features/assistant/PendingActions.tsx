@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WakingUp } from "@/components/WakingUp";
+import { errorCopy } from "@/lib/errorCopy";
 import { formatRelativeTime } from "@/lib/format";
 import { useAgentActions } from "@/lib/queries";
 import { cn } from "@/lib/utils";
@@ -84,7 +85,12 @@ export function PendingActions({ orgName, onAskAgain }: PendingActionsProps) {
             />
           )
         ) : pending.isError ? (
-          <ErrorState title="We couldn't load your approvals" onRetry={() => void pending.refetch()} className="p-5" />
+          <ErrorState
+            title="We couldn't load your approvals"
+            {...errorCopy(pending.error, "staff", { optionalFeature: true })}
+            onRetry={() => void pending.refetch()}
+            className="p-5"
+          />
         ) : (
           <div role="status" className="flex flex-col gap-3">
             <span className="sr-only">Loading pending approvals…</span>

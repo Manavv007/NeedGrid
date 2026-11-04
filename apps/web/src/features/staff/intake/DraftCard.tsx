@@ -222,6 +222,7 @@ function Editor({ row, onChange }: EditorProps) {
       <ProductOptions
         name={`product-${row.id}`}
         options={row.options}
+        category={row.category}
         selected={row.selected}
         onSelect={(selected) => onChange({ selected })}
       />

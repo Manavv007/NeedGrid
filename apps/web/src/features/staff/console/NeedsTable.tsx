@@ -61,6 +61,7 @@ function NeedRow({ need }: { need: NeedCard }) {
         <div className="flex items-center gap-3">
           <ProductPhoto
             product={need.product}
+            category={need.category}
             className="size-11 rounded-lg border"
             placeholderClassName="rounded-lg"
             iconClassName="size-5"

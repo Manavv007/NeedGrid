@@ -45,6 +45,7 @@ export function ImpactItemCard({ item }: { item: ImpactItem }) {
       <div className="flex items-start gap-3">
         <ProductPhoto
           product={need.product}
+          category={need.category}
           className="size-16 rounded-[10px]"
           placeholderClassName="rounded-[10px]"
           iconClassName="size-6"

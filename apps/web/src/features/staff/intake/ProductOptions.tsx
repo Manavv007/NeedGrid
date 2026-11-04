@@ -1,4 +1,4 @@
-import type { ProductOption } from "@needgrid/shared";
+import type { Category, ProductOption } from "@needgrid/shared";
 import { ProductPhoto } from "@/components/ProductPhoto";
 import { formatPerItem, formatUsd } from "@/lib/format";
 
@@ -6,12 +6,14 @@ type ProductOptionsProps = {
   /** Unique per row: the radio group's name. */
   name: string;
   options: readonly ProductOption[];
+  /** The draft's category, for the placeholder of an option without a photo. */
+  category: Category;
   selected: number;
   onSelect: (index: number) => void;
 };
 
 /** "Pick a product": up to 3 ranked options as one radio group, best first (Intake.dc.html). */
-export function ProductOptions({ name, options, selected, onSelect }: ProductOptionsProps) {
+export function ProductOptions({ name, options, category, selected, onSelect }: ProductOptionsProps) {
   return (
     <fieldset className="m-0 min-w-0 border-0 p-0">
       <legend className="mb-2 text-sm font-bold">Pick a product</legend>
@@ -30,6 +32,7 @@ export function ProductOptions({ name, options, selected, onSelect }: ProductOpt
             />
             <ProductPhoto
               product={option}
+              category={category}
               className="size-14 rounded-lg border"
               placeholderClassName="rounded-lg"
               iconClassName="size-5"

@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { audienceForPath, reloadCopy } from "@/lib/errorCopy";
 import { ErrorState } from "./ErrorState";
 
 type Props = { children: ReactNode };
@@ -22,7 +23,7 @@ export class AppErrorBoundary extends Component<Props, State> {
         <div className="flex min-h-svh items-center justify-center p-4">
           <ErrorState
             title="Something went wrong"
-            message="Reload the page to try again. Your gifts are safe."
+            message={reloadCopy(audienceForPath(window.location.pathname))}
             onRetry={() => window.location.reload()}
           />
         </div>

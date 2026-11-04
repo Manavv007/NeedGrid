@@ -61,6 +61,7 @@ function MatchCard({ match, budgetCents }: { match: Match; budgetCents: number }
       <div className="flex items-center gap-3">
         <ProductPhoto
           product={need.product}
+          category={need.category}
           className="size-16 rounded-[10px] border"
           placeholderClassName="rounded-[10px]"
           iconClassName="size-6"

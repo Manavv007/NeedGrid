@@ -1,4 +1,4 @@
-import type { NeedCard, ProductSnapshot } from "@needgrid/shared";
+import type { Category, NeedCard, ProductSnapshot } from "@needgrid/shared";
 import { Clock } from "lucide-react";
 import { useId } from "react";
 import { Link } from "react-router";
@@ -55,7 +55,7 @@ export function TileCard({ need, highlight = false }: TileCardProps) {
         highlight && "border-success hover:border-success motion-safe:animate-just-funded",
       )}
     >
-      <ProductImage product={need.product} />
+      <ProductImage product={need.product} category={need.category} />
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.75 sm:flex-col sm:flex-nowrap sm:items-stretch sm:gap-2.5 sm:px-4 sm:pt-3.5 sm:pb-4">
         <div className="flex w-full items-start justify-between gap-2">
           <h2 id={titleId} className="min-w-0 text-[15px] leading-[1.3] font-bold sm:text-base">
@@ -75,15 +75,19 @@ export function TileCard({ need, highlight = false }: TileCardProps) {
   );
 }
 
-/** Square product photo on white, or the design's grey placeholder. Fixed size, so nothing jumps. */
-function ProductImage({ product }: { product: ProductSnapshot | null }) {
+/**
+ * Square product photo on white, or the category placeholder (icon only on phones, with the
+ * category name from 640 px). Fixed size, so nothing jumps.
+ */
+function ProductImage({ product, category }: { product: ProductSnapshot | null; category: Category }) {
   return (
     <ProductPhoto
       product={product}
+      category={category}
       className="size-24 rounded-[10px] border sm:aspect-square sm:h-auto sm:w-full sm:rounded-none sm:rounded-t-xl sm:border-0 sm:border-b sm:p-4"
       placeholderClassName="sm:size-[62%] sm:rounded-xl"
       iconClassName="size-7.5 sm:size-9"
-      placeholderText={<span className="hidden text-xs sm:block">No photo yet</span>}
+      labelClassName="hidden text-xs sm:block"
     />
   );
 }

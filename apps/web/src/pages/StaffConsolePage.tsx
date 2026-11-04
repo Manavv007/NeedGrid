@@ -21,6 +21,7 @@ import { WaitingOnYou } from "@/features/staff/console/WaitingOnYou";
 import { useStaffOrg } from "@/features/staff/useStaffOrg";
 import { LiveStatus } from "@/features/live/LiveStatus";
 import { useLiveUpdates } from "@/features/live/useLiveUpdates";
+import { errorCopy } from "@/lib/errorCopy";
 import { features } from "@/lib/features";
 import { orgFlyerPath } from "@/lib/links";
 import { useAgentActions, useStaffNeeds } from "@/lib/queries";
@@ -100,7 +101,7 @@ export function StaffConsolePage() {
           onSelectTab={selectTab}
         />
       ) : needs.isError ? (
-        <ErrorState className="mt-8" onRetry={() => void needs.refetch()} />
+        <ErrorState {...errorCopy(needs.error, "staff")} className="mt-8" onRetry={() => void needs.refetch()} />
       ) : (
         <ConsoleSkeleton />
       )}

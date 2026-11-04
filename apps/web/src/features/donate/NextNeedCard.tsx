@@ -31,6 +31,7 @@ export function NextNeedCard({ need, variant = "card" }: NextNeedCardProps) {
       >
         <ProductPhoto
           product={need.product}
+          category={need.category}
           className="size-13 rounded-md border"
           placeholderClassName="rounded-md"
           iconClassName="size-5"
@@ -54,6 +55,7 @@ export function NextNeedCard({ need, variant = "card" }: NextNeedCardProps) {
     <article aria-labelledby={titleId} className="flex gap-3 rounded-xl border bg-surface p-3">
       <ProductPhoto
         product={need.product}
+        category={need.category}
         className="size-21 rounded-[10px] border"
         placeholderClassName="rounded-[10px]"
         iconClassName="size-6.5"
