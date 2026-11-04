@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import { env } from "../env";
+import { retryConnectFailures } from "../lib/dbErrors";
 import * as schema from "./schema";
 import { normalizePgUrl } from "./url";
 
@@ -26,6 +27,9 @@ export const pool = new pg.Pool({
 pool.on("error", (err) => {
   console.error("[db] idle client error:", err.message);
 });
+
+// A query whose connection couldn't even be opened (network blip, Neon waking up) is retried: nothing ran.
+retryConnectFailures(pool);
 
 export const db = drizzle(pool, { schema });
 export type Db = typeof db;

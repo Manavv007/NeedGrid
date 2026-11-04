@@ -8,7 +8,7 @@
 import type { AllocationReason, NeedStatus } from "@needgrid/shared";
 import { and, eq, gt, ne, sql } from "drizzle-orm";
 import { listDonatableNeeds, type Executor } from "../core/needs";
-import { isConnectionError } from "../lib/dbErrors";
+import { isConnectFailure } from "../lib/dbErrors";
 import { allocations, needs, reservations, type NeedRow } from "../db/schema";
 
 export const DONATABLE: readonly NeedStatus[] = ["open", "topping_up"];
@@ -145,18 +145,24 @@ const RETRYABLE = new Set(["40P01" /* deadlock_detected */, "40001" /* serializa
 
 /**
  * Re-run a whole transaction when Postgres aborts it for a deadlock (possible when two overflows lock the
- * same needs in different orders) or the connection failed. Safe because a failed transaction is rolled back
- * (all-or-nothing). The function must be safe to repeat and must not call PayPal inside.
+ * same needs in different orders), or when the connection couldn't even be OPENED (DNS/network blip, Neon
+ * waking up), with a longer backoff for the latter (1 s, 2 s, 4 s, 8 s).
+ *
+ * Deliberately NOT retried: a connection that drops mid-transaction. The COMMIT may already have succeeded,
+ * and running the money logic again could apply it twice. Those surface as 503 "try again" instead.
+ * The function must be safe to repeat and must not call PayPal inside.
  */
-export async function withTxRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
+export async function withTxRetry<T>(fn: () => Promise<T>, attempts = 5): Promise<T> {
   for (let i = 1; ; i++) {
     try {
       return await fn();
     } catch (err) {
       const code = pgErrorCode(err);
-      const retryable = (code !== undefined && RETRYABLE.has(code)) || isConnectionError(err);
-      if (!retryable || i >= attempts) throw err;
-      await new Promise((r) => setTimeout(r, 100 * i + Math.floor(Math.random() * 100)));
+      const deadlock = code !== undefined && RETRYABLE.has(code);
+      const connectFailed = isConnectFailure(err);
+      if ((!deadlock && !connectFailed) || i >= attempts) throw err;
+      const delay = connectFailed ? 1000 * 2 ** (i - 1) : 100 * i;
+      await new Promise((r) => setTimeout(r, delay + Math.floor(Math.random() * 100)));
     }
   }
 }
