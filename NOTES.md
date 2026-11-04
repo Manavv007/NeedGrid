@@ -138,6 +138,11 @@ Where things go: **decisions** → this table. **Requests and action items for a
   stored amounts against the database (changed → `failed`, PayPal never called) and reserves (sponsor holds, or the
   `approved` status that blocks a second refund of the same donation); (2) PayPal with no transaction open; (3) one
   transaction saves the money effects and the final status. Approve reads no body: amounts come only from `computed`.
+- **Roll-over never sends money anywhere by itself** (`jobs/rollover.ts`, every 10 min, `pnpm --filter @needgrid/api
+  job:rollover` for demos). A need past its deadline and underfunded is closed in one transaction: consenting donors'
+  share → `rollover` −/+ pairs to the most urgent open needs; the rest → `unallocated` + ONE system `create_refund`
+  proposal per donation for its full unallocated total (older proposed system refunds of that donation → `failed`).
+  Seed and invoice money is set aside without a proposal (create_refund only handles PayPal checkout donations).
 
 ## 6. PayPal (sandbox)
 
@@ -189,6 +194,14 @@ Where things go: **decisions** → this table. **Requests and action items for a
   then `addContentTypeParser(..., { parseAs: "string" })`. Other routes keep the normal parser.
 - **Rate limits key on `req.ip`**; `trustProxy: true` makes it the real client IP on Render. In tests, send a different
   `x-forwarded-for` per request (`nextIp()`) or the per-IP limit trips.
+- **Known limitation: with `trustProxy: true`, `req.ip` is the LEFTMOST `X-Forwarded-For` entry, which a client can
+  set itself.** So per-IP limits slow down casual abuse but not a determined attacker. The fix is a hop count
+  (`trustProxy: N`) or a header the edge overwrites (`cf-connecting-ip` / `true-client-ip`), but Render's chain isn't
+  documented: verify on the live service before changing it, or every user would share one rate-limit bucket.
+- **Security pass (Nov 6):** wrong staff passcodes are limited to 20 per IP per 10 min (then 429, even for the right
+  key); capture 60/min, impact 60/min, webhook 300/min (each webhook costs a PayPal verify call); every response gets
+  `nosniff`, `x-frame-options: DENY`, `referrer-policy: no-referrer`; `/api/staff/*` responses get
+  `cache-control: no-store`; logs also redact `cookie`.
 - **SSE can't be tested with `app.inject`**: listen on port 0 and use real `fetch`.
 
 ## 8. Tests
