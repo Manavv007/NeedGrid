@@ -55,6 +55,30 @@ const deps: ToolDeps = {
   needIds: async () => NEEDS.map((n) => n.id),
   invoices: async () => [],
   propose: (input) => core.proposeAction(input),
+  reconcile: {
+    listPayPalTransactions: async () => [
+      {
+        transactionId: "CAP1",
+        status: "S",
+        amountCents: 2500,
+        currency: "USD",
+        at: "2026-11-01T00:00:00.000Z",
+        invoiceId: null,
+        customField: null,
+        eventCode: "T0006",
+      },
+    ],
+    listRecordedDonations: async () => [
+      {
+        donationId: id(500),
+        captureId: "CAP1",
+        paypalInvoiceId: null,
+        amountCents: 2500,
+        at: "2026-11-01T00:00:00.000Z",
+      },
+    ],
+    orgScope: async () => ({ reservationIds: new Set(), invoiceIds: new Set() }),
+  },
 };
 
 const action = (args: Record<string, unknown>): AgentAction => ({
@@ -182,6 +206,45 @@ describe("runAssistantChat", () => {
     expect(prompts[1]).toContain("<untrusted_tool_result>");
     expect(prompts[1]).not.toContain(id(4));
     expect(prompts[2]).toContain("awaiting_human_approval");
+  });
+
+  it("'check this week's money' → reconcile with the report as data for C's table", async () => {
+    const { events, prompts } = await chat(
+      [{ calls: [{ name: "reconcile", input: { days: 7 } }] }, { text: "All 1 payment matches our records." }],
+      "check this week's money matches our records",
+    );
+    expect(events.map((e) => e.type)).toEqual(["tool_call", "tool_result", "text", "done"]);
+    expect(events[0]).toEqual({ type: "tool_call", tool: "reconcile", summary: "Checking PayPal transactions…" });
+    expect(events[1]).toMatchObject({
+      type: "tool_result",
+      tool: "reconcile",
+      summary: "Checked PayPal against your records · all 1 payment matches",
+      data: { ok: true, matchedCount: 1, mismatches: [] },
+    });
+    expect(prompts[1]).toContain('\\"ok\\":true');
+    expect(core.proposeAction).not.toHaveBeenCalled();
+  });
+
+  it("PayPal unavailable → the model gets a plain error, staff a short summary", async () => {
+    const failing: ToolDeps = {
+      ...deps,
+      reconcile: { ...deps.reconcile, listPayPalTransactions: async () => Promise.reject(new Error("PayPal 503")) },
+    };
+    setAiModels({
+      language: stepModel([{ calls: [{ name: "reconcile", input: {} }] }, { text: "PayPal didn't answer." }]),
+    });
+    const events: AgentStreamEvent[] = [];
+    await runAssistantChat({
+      org: ORG,
+      messages: [{ role: "user", content: "reconcile" }],
+      write: (e) => events.push(e),
+      deps: failing,
+    });
+    expect(events[1]).toEqual({
+      type: "tool_result",
+      tool: "reconcile",
+      summary: "Couldn't reach PayPal's transaction search",
+    });
   });
 
   it("an amount or org id sent by the model never reaches proposeAction", async () => {

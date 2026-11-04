@@ -519,3 +519,41 @@ Where things go: **decisions** → this table. **Requests and action items for a
   sandbox merchant). Scope it to the org ourselves: `customField` = reservation id → `reservations.need_id` → org,
   and `invoiceId` → `sponsor_invoices.paypal_invoice_id` → org. Otherwise every other org's payment shows up as
   "missing in records".
+
+## 20. B: reconcile + Match me (Nov 1)
+
+- **Reconcile (`ai/assistant/reconcile.ts`, no LLM)** runs as the assistant's `reconcile` tool (`data` =
+  `ReconcileReport`, C renders the table) and `list_transactions`. Pure core `buildReconcileReport` + injectable I/O
+  (`ReconcileDeps`), because A's `listPayPalTransactions` / `listRecordedDonations` are stubs until Nov 3–4.
+  - **One sandbox merchant for all three orgs:** PayPal's list holds every org's payments. A payment is this org's
+    when it matches one of its donations (capture id, else invoice id), or its `customField` is one of its
+    reservation ids (orders set `custom_id` = reservation id; `dbOrgScope` looks back the window + 1 day), or its
+    `invoiceId` is one of its sponsor invoices. Other orgs' payments are skipped; payments with no ids are counted as
+    `unattributedPayPalPayments` for the model only.
+  - Only status S/P, USD, event code `T00xx`, amount > 0 count (refunds `T11xx`, fees, holds don't). Duplicate
+    transaction ids are dropped; one PayPal payment matches at most one donation.
+  - Recorded donations < 3 h old that PayPal doesn't list are `pending` (not mismatches, not in the totals).
+  - Live wording check (fake PayPal data, gemini-3-flash-preview): clean → "All the payments … match … One gift from
+    the last three hours isn't in PayPal's report yet. I haven't changed anything."; mismatch → counts + "listed in the
+    table". **Not tested against real PayPal Transaction Search yet** (needs A's function + Transaction Search enabled
+    on the sandbox app). Check whether its `invoice_id` is the invoice *id* (`INV2-…`) or *number*, and whether
+    invoice payments carry our `custom_id`.
+- **Match me (`ai/match.ts`, `POST /api/match`, public, 10/min + 150/day):** embed donor text (`RETRIEVAL_QUERY`) →
+  pgvector `cosineDistance` over donatable needs with an embedding (40 candidates) → score = similarity +
+  `URGENCY_WEIGHT` 0.02 × (urgency − 1) → pick 3 → one model call for the reasons.
+  - **Similarity buckets don't work:** `floor(sim / 0.02)` put 0.900 and 0.895 in different buckets. Use a small
+    additive urgency weight.
+  - **Relevance before "fits the budget":** live, "kids at school who need warm clothes" ($30) first returned glue
+    sticks and index cards (similarity ~0.61, fit $30) over the winter coats (0.75). Now only candidates within
+    `RELEVANCE_MARGIN` 0.05 of the best are "relevant"; order = relevant & fits, relevant partial, then the rest.
+    Gemini text embeddings for this catalog sit around 0.6–0.75; the right items are ~0.05 above the rest.
+  - **Reasons are fact-checked:** a finished need may only quote what's left (live: "Your $25 gift finishes … size 4
+    diapers" when $14 was left; the donation is clamped to $14); a partial gift may quote the budget or the remaining
+    amount and must not say finish/complete/covers the last. Otherwise the plain reason ("Your $14 covers the last of
+    Diapers, size 4 at Harbor Food Bank") is used.
+  - **No embedding (no key, quota) → keyword + urgency fallback**, so the box still answers. No 503 "not configured";
+    503 "resting" only at the daily cap.
+  - **DB tests for pgvector are cheap:** the app's db points at TEST_DATABASE_URL in vitest, so `setNeedEmbedding` +
+    `dbMatchDeps.nearest` run real SQL. Unit vectors along one axis make the expected order obvious.
+- **Free-tier status, Nov 1 evening:** flash-lite AND flash daily quotas used up after a day of live checks; the
+  chain fell back to `gemini-3-flash-preview` and everything still worked. Budget live checks on demo days.

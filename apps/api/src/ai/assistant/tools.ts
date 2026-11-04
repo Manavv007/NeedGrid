@@ -21,18 +21,21 @@ import { and, asc, desc, eq, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import * as core from "../../core";
 import { HttpError } from "../../lib/http";
+import { coreReconcileDeps, reconcile, type ReconcileDeps } from "./reconcile";
 
 const { needs, sponsorInvoices } = core.schema;
 
 export const MAX_LISTED_NEEDS = 50;
 const MAX_LISTED_INVOICES = 20;
+const MAX_LISTED_PAYMENTS = 10;
+const PAYPAL_UNAVAILABLE = "PayPal's transaction search didn't answer. Try again in a few minutes.";
 
 export interface ToolOutcome {
   /** What the model sees (JSON). */
   forModel: unknown;
   /** One line for the staff member ("Looked up your needs · found 4 items"). */
   summary: string;
-  /** Only for tools C renders (none yet; `reconcile` in B-9). */
+  /** For tools C renders: the ReconcileReport for `reconcile`. */
   data?: unknown;
   /** Set when a proposal was created: streamed as `action_proposed`. */
   action?: AgentAction;
@@ -93,6 +96,9 @@ const ProposeInvoiceInput = z.object({
 
 const ListInvoicesInput = z.object({ status: z.enum(["draft", "sent", "paid", "cancelled"]).optional() });
 const ProposeSendInvoiceInput = z.object({ sponsorInvoiceId: z.string().describe("An invoice id from list_invoices") });
+const DaysInput = z.object({
+  days: z.number().int().min(1).max(31).optional().describe("How many days back to look (1–31, default 7)"),
+});
 
 type InvoiceRow = typeof sponsorInvoices.$inferSelect;
 
@@ -101,10 +107,12 @@ export interface ToolDeps {
   needIds(orgId: string, f: { status?: string; category?: string }): Promise<string[]>;
   invoices(orgId: string, f: { status?: string }): Promise<InvoiceRow[]>;
   propose: typeof core.proposeAction;
+  reconcile: ReconcileDeps;
 }
 
 export const dbDeps: ToolDeps = {
   propose: (input) => core.proposeAction(input),
+  reconcile: coreReconcileDeps,
   async needIds(orgId, f) {
     const where: SQL[] = [eq(needs.orgId, orgId)];
     if (f.status) where.push(eq(needs.status, f.status));
@@ -145,6 +153,76 @@ export function assistantTools(org: { id: string }, deps: ToolDeps = dbDeps): Re
   }
 
   return {
+    reconcile: {
+      kind: "read",
+      description:
+        "Check this charity's PayPal payments against NeedGrid's recorded donations for the last N days (default 7). Returns a report; staff see it as a table. It never changes anything.",
+      inputSchema: DaysInput,
+      startSummary: "Checking PayPal transactions…",
+      async run(input) {
+        const { days } = DaysInput.parse(input);
+        try {
+          const { report, pending, unattributed } = await reconcile(org.id, days, deps.reconcile);
+          const counts = report.mismatches.reduce<Record<string, number>>(
+            (c, m) => ({ ...c, [m.kind]: (c[m.kind] ?? 0) + 1 }),
+            {},
+          );
+          return {
+            forModel: {
+              ok: report.ok,
+              days: days ?? 7,
+              matchedCount: report.matchedCount,
+              mismatchCount: report.mismatches.length,
+              mismatchKinds: counts,
+              paypalTotalUsd: centsToUsdNumber(report.paypalTotalCents),
+              recordedTotalUsd: centsToUsdNumber(report.recordedTotalCents),
+              pendingRecent: pending,
+              unattributedPayPalPayments: unattributed,
+              note: "The mismatch rows are shown to staff in a table; describe them briefly, don't list them all.",
+            },
+            summary: report.ok
+              ? `Checked PayPal against your records · all ${plural(report.matchedCount, "payment matches", "payments match")}`
+              : `Checked PayPal against your records · ${plural(report.mismatches.length, "mismatch", "mismatches")}`,
+            data: report,
+          };
+        } catch (err) {
+          console.warn("[assistant] reconcile failed:", (err as Error).message?.slice(0, 200));
+          return { forModel: { error: PAYPAL_UNAVAILABLE }, summary: "Couldn't reach PayPal's transaction search" };
+        }
+      },
+    },
+
+    list_transactions: {
+      kind: "read",
+      description: `This charity's PayPal payments in the last N days (default 7): count, total in USD and the latest ${MAX_LISTED_PAYMENTS}.`,
+      inputSchema: DaysInput,
+      startSummary: "Checking PayPal transactions…",
+      async run(input) {
+        const { days } = DaysInput.parse(input);
+        try {
+          const { payments } = await reconcile(org.id, days, deps.reconcile);
+          const totalCents = payments.reduce((s, t) => s + t.amountCents, 0);
+          return {
+            forModel: {
+              days: days ?? 7,
+              count: payments.length,
+              totalUsd: centsToUsdNumber(totalCents),
+              latest: payments.slice(0, MAX_LISTED_PAYMENTS).map((t) => ({
+                transactionId: t.transactionId,
+                amountUsd: centsToUsdNumber(t.amountCents),
+                at: t.at,
+                status: t.status === "S" ? "completed" : "pending",
+              })),
+            },
+            summary: `Looked up PayPal payments · found ${plural(payments.length, "payment", "payments")}`,
+          };
+        } catch (err) {
+          console.warn("[assistant] list_transactions failed:", (err as Error).message?.slice(0, 200));
+          return { forModel: { error: PAYPAL_UNAVAILABLE }, summary: "Couldn't reach PayPal's transaction search" };
+        }
+      },
+    },
+
     list_needs: {
       kind: "read",
       description:
