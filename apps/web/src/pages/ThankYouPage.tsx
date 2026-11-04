@@ -8,6 +8,7 @@ import { ThanksState } from "@/features/donate/thanksState";
 import { GiftSplit, SentOnExplainer, UnassignedNote } from "@/features/impact/GiftSplit";
 import { SaveImpactLink } from "@/features/impact/SaveImpactLink";
 import { ApiClientError } from "@/lib/api";
+import { errorCopy } from "@/lib/errorCopy";
 import { formatUsd } from "@/lib/format";
 import { impactPath, orgPath } from "@/lib/links";
 import { useImpact } from "@/lib/queries";
@@ -40,7 +41,7 @@ export function ThankYouPage() {
     />
   ) : impact.isError ? (
     <div className={`${PAGE} py-12`}>
-      <ErrorState onRetry={() => void impact.refetch()} />
+      <ErrorState {...errorCopy(impact.error, "donor")} onRetry={() => void impact.refetch()} />
     </div>
   ) : (
     <ThankYouLoading />

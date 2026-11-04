@@ -11,6 +11,7 @@ import { ImpactItemCard } from "@/features/impact/ImpactItemCard";
 import { arrivedAt, impactHeadline, sortImpactItems } from "@/features/impact/impactItems";
 import { SaveImpactLink } from "@/features/impact/SaveImpactLink";
 import { ApiClientError } from "@/lib/api";
+import { errorCopy } from "@/lib/errorCopy";
 import { formatUsd } from "@/lib/format";
 import { orgPath } from "@/lib/links";
 import { useImpact } from "@/lib/queries";
@@ -45,7 +46,7 @@ export function ImpactPage() {
     />
   ) : impact.isError ? (
     <div className={`${PAGE} py-12`}>
-      <ErrorState onRetry={() => void impact.refetch()} />
+      <ErrorState {...errorCopy(impact.error, "donor")} onRetry={() => void impact.refetch()} />
     </div>
   ) : (
     <ImpactLoading />

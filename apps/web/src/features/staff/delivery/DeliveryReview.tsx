@@ -54,9 +54,11 @@ export function DeliveryReview({ need, delivery, onRetake, focusHeading }: Deliv
             <figure className="m-0 flex min-w-0 flex-col gap-1.5">
               <ProductPhoto
                 product={need.product}
+                category={need.category}
                 className="aspect-square w-full rounded-lg border"
                 placeholderClassName="rounded-lg"
                 iconClassName="size-10"
+                labelClassName="text-[13px]"
               />
               <figcaption className="text-[13px] text-muted-foreground">What we ordered</figcaption>
             </figure>

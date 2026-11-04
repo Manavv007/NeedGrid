@@ -55,6 +55,31 @@
   /* Added in C-7 (purchase plan) */
   --warning-soft: #fffbeb;
 
+  /*
+   * Added in C-11: product-photo placeholders, one muted tint per category. The text colour is used
+   * for the icon and the category name; every pair is at least 6.3:1 (AA for small text).
+   */
+  --category-food-bg: #fdf0e1;
+  --category-food-text: #8a4510;
+  --category-hygiene-bg: #e3f3f6;
+  --category-hygiene-text: #1c5e6e;
+  --category-baby-bg: #fceaf0;
+  --category-baby-text: #8c3256;
+  --category-clothing-bg: #eaedfb;
+  --category-clothing-text: #3b478c;
+  --category-bedding-bg: #efeaf8;
+  --category-bedding-text: #5a3d85;
+  --category-school-bg: #faf3d7;
+  --category-school-text: #6e540a;
+  --category-pet-bg: #f4ece2;
+  --category-pet-text: #6b4728;
+  --category-medical-bg: #e6f0fa;
+  --category-medical-text: #1f4f80;
+  --category-household-bg: #e7f3ea;
+  --category-household-text: #2d6140;
+  --category-other-bg: #f1efea;
+  --category-other-text: #4a4f57;
+
   /* Status badges (background / text) */
   --badge-urgent-bg: #fdebdd;
   --badge-urgent-text: #9a3412;
@@ -154,6 +179,26 @@
   --color-confirming-track: var(--confirming-track);
   --color-reconnecting-dot: var(--reconnecting-dot);
   --color-warning-soft: var(--warning-soft);
+  --color-category-food-bg: var(--category-food-bg);
+  --color-category-food-text: var(--category-food-text);
+  --color-category-hygiene-bg: var(--category-hygiene-bg);
+  --color-category-hygiene-text: var(--category-hygiene-text);
+  --color-category-baby-bg: var(--category-baby-bg);
+  --color-category-baby-text: var(--category-baby-text);
+  --color-category-clothing-bg: var(--category-clothing-bg);
+  --color-category-clothing-text: var(--category-clothing-text);
+  --color-category-bedding-bg: var(--category-bedding-bg);
+  --color-category-bedding-text: var(--category-bedding-text);
+  --color-category-school-bg: var(--category-school-bg);
+  --color-category-school-text: var(--category-school-text);
+  --color-category-pet-bg: var(--category-pet-bg);
+  --color-category-pet-text: var(--category-pet-text);
+  --color-category-medical-bg: var(--category-medical-bg);
+  --color-category-medical-text: var(--category-medical-text);
+  --color-category-household-bg: var(--category-household-bg);
+  --color-category-household-text: var(--category-household-text);
+  --color-category-other-bg: var(--category-other-bg);
+  --color-category-other-text: var(--category-other-text);
   --color-badge-urgent-bg: var(--badge-urgent-bg);
   --color-badge-urgent-text: var(--badge-urgent-text);
   --color-badge-medium-bg: var(--badge-medium-bg);

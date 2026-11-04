@@ -17,10 +17,14 @@ export default mergeConfig(
       // it green in 150 s (C-8). A 4-core CI runner still gets 2 workers.
       maxWorkers: "50%",
       // Tests never use the browser worker or a real API: MSW's node server answers this fake origin.
+      // PayPal and Cloudinary are blank ("not set up"), so a developer's .env.local never leaks in.
       env: {
         VITE_API_URL: "http://api.test",
         VITE_USE_MOCKS: "false",
         VITE_DEMO_STAFF_KEY: "harbor-demo-2026",
+        VITE_PAYPAL_CLIENT_ID: "",
+        VITE_CLOUDINARY_CLOUD_NAME: "",
+        VITE_CLOUDINARY_UPLOAD_PRESET: "",
       },
     },
   }),

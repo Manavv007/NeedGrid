@@ -15,6 +15,7 @@ import { LiveStatus } from "@/features/live/LiveStatus";
 import { useLiveUpdates } from "@/features/live/useLiveUpdates";
 import { isDonatable } from "@/features/tiles/filterNeeds";
 import { ApiClientError } from "@/lib/api";
+import { errorCopy } from "@/lib/errorCopy";
 import { features } from "@/lib/features";
 import { needFlyerPath, needPath, orgPath } from "@/lib/links";
 import { useNeed } from "@/lib/queries";
@@ -71,7 +72,7 @@ function NeedPageContent({ slug, needId }: { slug: string; needId: string }) {
   if (need.isError) {
     return (
       <div className={`${PAGE} py-12`}>
-        <ErrorState onRetry={() => void need.refetch()} />
+        <ErrorState {...errorCopy(need.error, "donor")} onRetry={() => void need.refetch()} />
       </div>
     );
   }
