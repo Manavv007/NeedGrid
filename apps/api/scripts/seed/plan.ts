@@ -53,6 +53,8 @@ export interface PlanOptions {
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 const HISTORY_DAYS = 56; // 8 weeks
+/** The formula hero's stored price = today's price × this (was 1.15; the live price rose 23% in 11 days, Nov 5). */
+export const PRICE_DROP_MARKUP = 1.35;
 
 /** Donation amounts in cents: mostly $10/$15/$25/$50. "Fund the rest" odd amounts come from finishing a tile. */
 const AMOUNTS: ReadonlyArray<readonly [number, number]> = [
@@ -287,9 +289,10 @@ function addNeed(plan: SeedPlan, rng: Rng, a: NeedArgs): void {
   let product: ProductSnapshot = t.manual ? manualSnapshot(t, new Date(start).toISOString()) : candidates[0]!;
   const alternatives = candidates.slice(1, 3);
 
-  // Purchase-plan scene: the stored price is ~15% above today's, so the refresh finds it cheaper.
+  // Purchase-plan scene: the stored price is PRICE_DROP_MARKUP above today's, so the refresh finds it cheaper. The seed
+  // pins today's price first when online (pinHeroPrice in index.ts): live prices moved +23% in 11 days (NOTES §21).
   if (isHero(slug, t.key, HEROES.priceDrop)) {
-    product = { ...product, unitPriceCents: Math.ceil((product.unitPriceCents * 1.15) / 10) * 10 };
+    product = { ...product, unitPriceCents: Math.ceil((product.unitPriceCents * PRICE_DROP_MARKUP) / 10) * 10 };
   }
 
   const quantity = quantityFor(rng, t, product.unitPriceCents);

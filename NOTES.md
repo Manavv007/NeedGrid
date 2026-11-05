@@ -557,3 +557,42 @@ Where things go: **decisions** → this table. **Requests and action items for a
     `dbMatchDeps.nearest` run real SQL. Unit vectors along one axis make the expected order obvious.
 - **Free-tier status, Nov 1 evening:** flash-lite AND flash daily quotas used up after a day of live checks; the
   chain fell back to `gemini-3-flash-preview` and everything still worked. Budget live checks on demo days.
+
+## 21. B: live end-to-end check on the deployed API (Nov 5)
+
+- **The deployed API is behind main.** `POST /api/match` answers `Route POST /api/match not found` and the assistant
+  has no `reconcile` tool, so PR #36 isn't live, although Render auto-deploys on commit (`autoDeployTrigger: commit`).
+  Check the needgrid-api deploy log on Render. To tell a missing route from a missing record, read the 404 body:
+  Fastify says `Route POST /api/... not found`; our handlers say `Need not found`.
+- **Works live (with A's real core):**
+  - Purchase plan on the formula need: proposed purchase, flags, explanation, 3 alternatives, 3 s.
+  - Assistant (Room 12): "Invoice Acme Hardware (sponsor@acme.example) for the whole winter-coats list" → one
+    `create_invoice` proposal with the 4 coats, total $406.00 computed by A's `proposeAction`. Left as `proposed`
+    (action `4a3697d2-…`); reject it on the approvals screen before recording if it shouldn't show.
+  - "refund everyone" and "show me donor emails" → refusals, no proposal.
+- **Demo hero broken: the formula is now PRICIER.** Stored $42.40 × 6, funded $275; Channel3 today has cvs.com and
+  walgreens.com at $51.99 → "Price rose $9.59", gap $62 (top-up scene, not the surplus scene). The 15% seed markup
+  wasn't enough: the live price moved +23% in 11 days. A pricier result is correct behaviour; the demo script needs
+  the cheaper version. Running purchase-plan created a `proposed` purchase on it (no money moved; the next plan
+  supersedes it).
+- **Without `reconcile` the model improvised** ("check this week's money" → `list_invoices` twice and a list of
+  invoices). Once #36 is deployed, recheck that it calls `reconcile`.
+- **PowerShell 5.1 + NDJSON:** `Invoke-WebRequest` returns an `application/x-ndjson` body as bytes, so `.Content`
+  prints blank lines. Use `-OutFile file` and `[IO.File]::ReadAllLines(file, UTF8)`. Read-only probes first: the
+  first garbled run had already created a real proposal.
+- **One database branch per agent (Nov 5).** A, B and C each have their own Neon `DATABASE_URL` and
+  `TEST_DATABASE_URL`. B's are `ep-soft-mode-…` (dev-b, seeded) and `ep-royal-tooth-…` (test; vitest truncates
+  every table in it). Production is separate (Render's `DATABASE_URL`; B seeded `ep-calm-tree-…` on Nov 1). On
+  Nov 5 the folder briefly had A's dev URL (`ep-falling-wildflower-…`): seed ids matched production but rows didn't
+  (no purchases). Before any script writes, print the host and compare it with the branch you expect.
+
+- **Redeploy confirmed (Nov 5):** after the manual Render deploy, `POST /api/match` answers (winter coats for "kids at
+  school who need warm clothes", $30) and "check this week's money" calls `reconcile` against real PayPal: 1 payment,
+  matches, $46.00 both sides.
+- **Formula hero fix:** `PRICE_DROP_MARKUP` 1.15 → 1.35, and the seed now pins the hero's price to today's cheapest
+  in-stock offer before building the plan (`pinHeroPrice` in `scripts/seed/index.ts`, Channel3 retrieve, no credits;
+  it also updates `products.cache.json`). Rehearsed on dev-b with `--reset`: stored $70.20 × 4, today cvs.com $51.99
+  → "Price dropped 26%", surplus $79 to the next most urgent need, which is **Diapers, size 4** (the $14-left hero).
+  Record the donation scene before approving the formula plan, or the surplus fills the diapers.
+- **Reseeding = `--reset`:** plain `seed` skips orgs that already have needs, so changing seeded data means emptying
+  every table first. On production that also deletes real sandbox donations, invoices and approval cards.
