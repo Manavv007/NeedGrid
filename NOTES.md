@@ -585,3 +585,14 @@ Where things go: **decisions** → this table. **Requests and action items for a
   every table in it). Production is separate (Render's `DATABASE_URL`; B seeded `ep-calm-tree-…` on Nov 1). On
   Nov 5 the folder briefly had A's dev URL (`ep-falling-wildflower-…`): seed ids matched production but rows didn't
   (no purchases). Before any script writes, print the host and compare it with the branch you expect.
+
+- **Redeploy confirmed (Nov 5):** after the manual Render deploy, `POST /api/match` answers (winter coats for "kids at
+  school who need warm clothes", $30) and "check this week's money" calls `reconcile` against real PayPal: 1 payment,
+  matches, $46.00 both sides.
+- **Formula hero fix:** `PRICE_DROP_MARKUP` 1.15 → 1.35, and the seed now pins the hero's price to today's cheapest
+  in-stock offer before building the plan (`pinHeroPrice` in `scripts/seed/index.ts`, Channel3 retrieve, no credits;
+  it also updates `products.cache.json`). Rehearsed on dev-b with `--reset`: stored $70.20 × 4, today cvs.com $51.99
+  → "Price dropped 26%", surplus $79 to the next most urgent need, which is **Diapers, size 4** (the $14-left hero).
+  Record the donation scene before approving the formula plan, or the surplus fills the diapers.
+- **Reseeding = `--reset`:** plain `seed` skips orgs that already have needs, so changing seeded data means emptying
+  every table first. On production that also deletes real sandbox donations, invoices and approval cards.

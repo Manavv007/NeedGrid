@@ -14,13 +14,14 @@
 import { and, inArray, isNull } from "drizzle-orm";
 import { embedNeedText } from "../../src/ai";
 import { isEmbeddingConfigured } from "../../src/ai/models";
+import { refreshProduct } from "../../src/channel3";
 import { setNeedEmbedding } from "../../src/core";
 import { closeDb, db } from "../../src/db/client";
 import { needs, organizations } from "../../src/db/schema";
 import { describePgUrl } from "../../src/db/url";
 import { env } from "../../src/env";
 import { findMoneyViolations } from "../../src/money/invariants";
-import { CATALOG } from "./catalog";
+import { CATALOG, HEROES } from "./catalog";
 import { SEED_ORGS } from "./orgs";
 import { buildPlan, checkPlan } from "./plan";
 import { candidatesFor, fetchMissing, loadCache, saveCache } from "./products";
@@ -121,6 +122,37 @@ async function backfillEmbeddings(orgSlugs: string[]): Promise<void> {
   console.log(`Embeddings: ${done} added, ${failed} failed${failed ? " (rerun with --embeddings-only)" : ""}`);
 }
 
+/**
+ * The formula hero's price drop must be real on demo day: refresh its cached price to today's cheapest in-stock offer
+ * (what the purchase plan will pick) right before building the plan. Retrieve costs no Channel3 credits.
+ */
+async function pinHeroPrice(cache: ReturnType<typeof loadCache>): Promise<void> {
+  const org = SEED_ORGS.find((o) => o.slug === HEROES.priceDrop.org)!;
+  const t = CATALOG[org.slug]!.find((x) => x.key === HEROES.priceDrop.key)!;
+  const hero = candidatesFor(cache, t, org.allowPetProducts)[0];
+  if (!hero) return;
+  try {
+    const { allOffers } = await refreshProduct(hero.channel3Id);
+    const best = allOffers.find((o) => o.inStock) ?? allOffers[0];
+    if (!best) return console.warn(`Hero price: Channel3 has no offer for ${hero.channel3Id}; using the cached price`);
+    if (best.unitPriceCents !== hero.unitPriceCents || best.retailer !== hero.retailer) {
+      console.log(
+        `Hero price: ${t.key} ${hero.retailer} ${hero.unitPriceCents} → ${best.retailer} ${best.unitPriceCents} (today)`,
+      );
+      Object.assign(hero, {
+        unitPriceCents: best.unitPriceCents,
+        retailer: best.retailer,
+        url: best.url,
+        inStock: best.inStock,
+        fetchedAt: new Date().toISOString(),
+      });
+      saveCache(cache);
+    } else console.log(`Hero price: ${t.key} unchanged at ${best.unitPriceCents}`);
+  } catch (err) {
+    console.warn(`Hero price: refresh failed (${(err as Error).message}); using the cached price`);
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const target = describePgUrl(env.DATABASE_URL);
@@ -138,6 +170,7 @@ async function main() {
     throw new Error("Fix those templates in catalog.ts (query or match rules), then run again.");
   }
   if (args.fetchOnly) return;
+  if (!args.offline) await pinHeroPrice(cache);
 
   const plan = buildPlan({ seed: args.seed, end: args.end, cache });
   const problems = checkPlan(plan);
