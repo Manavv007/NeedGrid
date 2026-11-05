@@ -8,7 +8,7 @@ import { mockDb } from "@/mocks/mockDb";
 import { server } from "@/mocks/node";
 import { renderRoute } from "./render";
 
-// The box is behind `matchMe`, which is on only in mock mode; these tests turn it on.
+// The box is behind `matchMe` (on since Nov 5); the mock pins it on so these tests don't depend on the flag.
 vi.mock("@/lib/features", () => ({ features: { flyers: true, matchMe: true, moneyActions: true } }));
 
 const MATCH = "http://api.test/api/match";

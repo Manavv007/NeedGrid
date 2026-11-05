@@ -596,3 +596,25 @@ Where things go: **decisions** → this table. **Requests and action items for a
   Record the donation scene before approving the formula plan, or the surplus fills the diapers.
 - **Reseeding = `--reset`:** plain `seed` skips orgs that already have needs, so changing seeded data means emptying
   every table first. On production that also deletes real sandbox donations, invoices and approval cards.
+
+- **Production reseeded Nov 5 (`seed --reset --yes` on `ep-calm-tree-…`)**, brought forward from Nov 9 because the team
+  may submit early. 121 needs, 643 donations, 30 purchases, 18 deliveries, 121 embeddings (16 backfilled a minute
+  later), `check:money` OK. The Acme invoice, its $46 donation and all approval cards were deleted (PayPal still has
+  the $46 payment: reconcile will report it as `missing_in_records` until it leaves the 7-day window).
+  Verified on the live API: diapers 4 open with $14 left, formula funded (stored $70.20 × 4 vs cvs.com $51.99 →
+  "Price dropped 26%", $79 surplus to Diapers, size 4), wipes ordered, 4 coats open, Match me answers.
+  **To run a script against production:** `$env:DATABASE_URL = <PROD_DATABASE_URL>` first. `tsx --env-file` never
+  overrides a variable that's already set, so this takes precedence over `.env`. Then `Remove-Item Env:DATABASE_URL`.
+
+- **AG Studio trial licence is live (Nov 5)** on needgrid-web (`VITE_AG_STUDIO_LICENSE`, set in Render, not in git).
+  Trial keys start `[TRIAL]_this_{AG_Studio_Pro}_…`, not `Using_this_…`, and this one deactivates on 20 December 2026.
+  The spaces inside `{20 December 2026}` belong to the key. To check a deploy, search the lazy `DashboardPage-*.js`
+  chunk (~5 MB) for `[TRIAL]_this_`; the main `index-*.js` doesn't contain it.
+
+- **CI failed at 07:58 UTC (23:58 Pacific) on Nov 5: a clock bug, not test data.** `callModel` chose "busy, try again
+  in a minute" when the soonest model recovered in under 5 minutes, and a daily limit hit 2 minutes before Pacific
+  midnight recovers in 2 minutes. Two `fallback.test.ts` tests failed only in that window. Now the message depends
+  on the kind of limit (all per-minute → busy; any daily → resting), with a regression test pinned to 23:58 PT via
+  `vi.useFakeTimers({ toFake: ["Date"] })`. **The `needs_status_check` / `category` / `quantity` errors in the CI log
+  are expected:** `db/schema.test.ts` inserts bad rows on purpose and asserts Postgres code `23514`. Read the
+  `FAIL` lines, not the noise.

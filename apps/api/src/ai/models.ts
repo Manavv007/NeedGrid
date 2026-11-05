@@ -292,9 +292,11 @@ export async function callModel<T>(fn: (call: ModelCall) => Promise<T>, opts: Ca
     if (opts.abortSignal?.aborted) throw new CallCancelled();
   }
   logFailure(opts.label, last ?? new Error(tried === 0 ? "every model is cooling down" : "no attempt succeeded"));
-  const soonest = Math.min(...chain.map(coolingUntil)) - Date.now();
   if (chain.every((m) => coolingUntil(m) > Date.now())) {
-    throw new HttpError(503, "UPSTREAM", soonest < 5 * 60_000 ? AI_BUSY_MINUTE : AI_RESTING);
+    // By the KIND of limit, not the time left: a daily limit hit at 23:58 Pacific resets in 2 minutes, and CI failed
+    // on Nov 5 when "time left < 5 min" turned "resting" into "busy". Busy only when only per-minute limits are hit.
+    const onlyMinute = chain.every((m) => cooldownUntil.get(m)?.kind === "minute");
+    throw new HttpError(503, "UPSTREAM", onlyMinute ? AI_BUSY_MINUTE : AI_RESTING);
   }
   throw new HttpError(502, "UPSTREAM", "The AI service is busy, try again");
 }
