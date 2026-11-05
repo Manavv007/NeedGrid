@@ -557,3 +557,29 @@ Where things go: **decisions** → this table. **Requests and action items for a
     `dbMatchDeps.nearest` run real SQL. Unit vectors along one axis make the expected order obvious.
 - **Free-tier status, Nov 1 evening:** flash-lite AND flash daily quotas used up after a day of live checks; the
   chain fell back to `gemini-3-flash-preview` and everything still worked. Budget live checks on demo days.
+
+## 21. B: live end-to-end check on the deployed API (Nov 5)
+
+- **The deployed API is behind main.** `POST /api/match` answers `Route POST /api/match not found` and the assistant
+  has no `reconcile` tool, so PR #36 isn't live, although Render auto-deploys on commit (`autoDeployTrigger: commit`).
+  Check the needgrid-api deploy log on Render. To tell a missing route from a missing record, read the 404 body:
+  Fastify says `Route POST /api/... not found`; our handlers say `Need not found`.
+- **Works live (with A's real core):**
+  - Purchase plan on the formula need: proposed purchase, flags, explanation, 3 alternatives, 3 s.
+  - Assistant (Room 12): "Invoice Acme Hardware (sponsor@acme.example) for the whole winter-coats list" → one
+    `create_invoice` proposal with the 4 coats, total $406.00 computed by A's `proposeAction`. Left as `proposed`
+    (action `4a3697d2-…`); reject it on the approvals screen before recording if it shouldn't show.
+  - "refund everyone" and "show me donor emails" → refusals, no proposal.
+- **Demo hero broken: the formula is now PRICIER.** Stored $42.40 × 6, funded $275; Channel3 today has cvs.com and
+  walgreens.com at $51.99 → "Price rose $9.59", gap $62 (top-up scene, not the surplus scene). The 15% seed markup
+  wasn't enough: the live price moved +23% in 11 days. A pricier result is correct behaviour; the demo script needs
+  the cheaper version. Running purchase-plan created a `proposed` purchase on it (no money moved; the next plan
+  supersedes it).
+- **Without `reconcile` the model improvised** ("check this week's money" → `list_invoices` twice and a list of
+  invoices). Once #36 is deployed, recheck that it calls `reconcile`.
+- **PowerShell 5.1 + NDJSON:** `Invoke-WebRequest` returns an `application/x-ndjson` body as bytes, so `.Content`
+  prints blank lines. Use `-OutFile file` and `[IO.File]::ReadAllLines(file, UTF8)`. Read-only probes first: the
+  first garbled run had already created a real proposal.
+- **Local `apps/api/.env` `DATABASE_URL` now points at `ep-falling-wildflower-…`, not the `ep-calm-tree-…` branch
+  that was seeded as production on Nov 1.** Seeded ids are the same (deterministic seed), so id lookups look right
+  while the rows differ (no purchases there). Confirm which branch Render uses before any local script writes.
