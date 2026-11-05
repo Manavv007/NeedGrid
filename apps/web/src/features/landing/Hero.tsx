@@ -1,5 +1,6 @@
 import { Check } from "lucide-react";
 import { Link } from "react-router";
+import { ProductPhoto } from "@/components/ProductPhoto";
 import { Button } from "@/components/ui/button";
 
 /** Landing hero: the hook line, one-line explainer, two calls to action (Landing.dc.html). */
@@ -27,12 +28,33 @@ export function Hero() {
   );
 }
 
+/**
+ * Real product photos for the two sample tiles: the seeded demo needs' Channel3 images (Harbor's size 4 diapers,
+ * Room 12's kids' coats), hotlinked like every tile. If one fails to load, ProductPhoto shows the category
+ * placeholder instead.
+ */
+const HERO_DIAPERS = {
+  title: "Pampers Cruisers 360 Diapers Size 4",
+  imageUrl: "https://cdn.trychannel3.com/a6c34137-30f7-40c0-8bd4-082328b33b61?aid=01M66CH4E4BZ61VXQYKW635GKV&mid=1Evq",
+};
+const HERO_COAT = {
+  title: "Kids' Puffer Jacket",
+  imageUrl:
+    "https://cdn.trychannel3.com/cleaned/v1/86f025d5-ddb3-497f-85c3-28fa231acb70?aid=01M66CNG98WNKJQ2YDQ1VX7V9A&mid=ZO25",
+};
+
 /** Decorative sample tiles. Hidden from screen readers: the real tiles are one click away. */
 function HeroArt() {
   return (
     <div aria-hidden="true" className="grid min-w-0 flex-[1_1_380px] grid-cols-2 gap-3.5">
       <div className="flex flex-col gap-2.5 rounded-xl border bg-surface p-3.5">
-        <div className="aspect-4/3 rounded-md bg-placeholder" />
+        <ProductPhoto
+          product={HERO_DIAPERS}
+          category="baby"
+          className="aspect-4/3 rounded-md"
+          iconClassName="size-10"
+          loading="eager"
+        />
         <p className="text-sm font-bold">Diapers, size 4</p>
         <div className="h-2 overflow-hidden rounded-full bg-track">
           <div className="h-full w-[83%] bg-primary" />
@@ -40,7 +62,13 @@ function HeroArt() {
         <p className="text-[13px] font-bold text-left-text">$14 left</p>
       </div>
       <div className="mt-9 flex flex-col gap-2.5 rounded-xl border bg-surface p-3.5">
-        <div className="aspect-4/3 rounded-md bg-placeholder-strong" />
+        <ProductPhoto
+          product={HERO_COAT}
+          category="clothing"
+          className="aspect-4/3 rounded-md"
+          iconClassName="size-10"
+          loading="eager"
+        />
         <p className="text-sm font-bold">Kids' winter coats</p>
         <p className="flex items-center gap-1.25 text-[13px] font-bold text-success">
           <Check className="size-3.25" strokeWidth={3} />
