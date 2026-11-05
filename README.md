@@ -117,6 +117,9 @@ Webhooks need a public URL: register `https://<your tunnel>/api/webhooks/paypal`
 
 ## Team and repo docs
 
+- [`docs/ai.md`](docs/ai.md): how NeedGrid uses AI, the guardrails, and the AG Studio dashboard.
+- [`docs/test-guide.md`](docs/test-guide.md): an end-to-end checklist for every feature on the live site.
+
 Three people, each working with a coding agent: **A** payments and backend, **B** AI and data, **C** frontend and demo.
 `NEEDGRID_DEV_PLAN.md` is the plan; `AGENT_*.md` are the per-person briefs; `NOTES.md` records decisions and lessons
 (PayPal sandbox quirks included); `HANDOFF.md` holds requests between owners.
