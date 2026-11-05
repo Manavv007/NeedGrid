@@ -580,6 +580,8 @@ Where things go: **decisions** → this table. **Requests and action items for a
 - **PowerShell 5.1 + NDJSON:** `Invoke-WebRequest` returns an `application/x-ndjson` body as bytes, so `.Content`
   prints blank lines. Use `-OutFile file` and `[IO.File]::ReadAllLines(file, UTF8)`. Read-only probes first: the
   first garbled run had already created a real proposal.
-- **Local `apps/api/.env` `DATABASE_URL` now points at `ep-falling-wildflower-…`, not the `ep-calm-tree-…` branch
-  that was seeded as production on Nov 1.** Seeded ids are the same (deterministic seed), so id lookups look right
-  while the rows differ (no purchases there). Confirm which branch Render uses before any local script writes.
+- **One database branch per agent (Nov 5).** A, B and C each have their own Neon `DATABASE_URL` and
+  `TEST_DATABASE_URL`. B's are `ep-soft-mode-…` (dev-b, seeded) and `ep-royal-tooth-…` (test; vitest truncates
+  every table in it). Production is separate (Render's `DATABASE_URL`; B seeded `ep-calm-tree-…` on Nov 1). On
+  Nov 5 the folder briefly had A's dev URL (`ep-falling-wildflower-…`): seed ids matched production but rows didn't
+  (no purchases). Before any script writes, print the host and compare it with the branch you expect.
