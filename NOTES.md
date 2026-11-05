@@ -610,3 +610,11 @@ Where things go: **decisions** → this table. **Requests and action items for a
   Trial keys start `[TRIAL]_this_{AG_Studio_Pro}_…`, not `Using_this_…`, and this one deactivates on 20 December 2026.
   The spaces inside `{20 December 2026}` belong to the key. To check a deploy, search the lazy `DashboardPage-*.js`
   chunk (~5 MB) for `[TRIAL]_this_`; the main `index-*.js` doesn't contain it.
+
+- **CI failed at 07:58 UTC (23:58 Pacific) on Nov 5: a clock bug, not test data.** `callModel` chose "busy, try again
+  in a minute" when the soonest model recovered in under 5 minutes, and a daily limit hit 2 minutes before Pacific
+  midnight recovers in 2 minutes. Two `fallback.test.ts` tests failed only in that window. Now the message depends
+  on the kind of limit (all per-minute → busy; any daily → resting), with a regression test pinned to 23:58 PT via
+  `vi.useFakeTimers({ toFake: ["Date"] })`. **The `needs_status_check` / `category` / `quantity` errors in the CI log
+  are expected:** `db/schema.test.ts` inserts bad rows on purpose and asserts Postgres code `23514`. Read the
+  `FAIL` lines, not the noise.

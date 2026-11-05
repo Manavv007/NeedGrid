@@ -1,6 +1,6 @@
 import { APICallError, generateText } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AI_BUSY_MINUTE,
   AI_RESTING,
@@ -88,6 +88,22 @@ describe("callModel fallback chain", () => {
     setAiModels({ language: [model("a", () => quota429(true)), model("b", () => quota429(true))] });
     await expect(ask()).rejects.toMatchObject({ status: 503, code: "UPSTREAM", message: AI_RESTING });
     // Already-exhausted models aren't called again: same answer, no new requests.
+    await expect(ask()).rejects.toMatchObject({ status: 503, message: AI_RESTING });
+  });
+
+  it("…also in the last minutes before Pacific midnight (CI failed at 23:58 PT on Nov 5)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-06T07:58:08.000Z")); // 23:58:08 PST
+    try {
+      setAiModels({ language: [model("a", () => quota429(true))] });
+      await expect(ask()).rejects.toMatchObject({ status: 503, message: AI_RESTING });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("daily on one model, per-minute on the other → 'resting' (not every limit is short)", async () => {
+    setAiModels({ language: [model("a", () => quota429(true)), model("b", () => quota429(false))] });
     await expect(ask()).rejects.toMatchObject({ status: 503, message: AI_RESTING });
   });
 
