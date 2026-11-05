@@ -1,15 +1,17 @@
 import type { DeliveryPublic, ImpactItem } from "@needgrid/shared";
 import { ImageIcon } from "lucide-react";
 import { useId, useState } from "react";
-import { ProductPhoto } from "@/components/ProductPhoto";
+import { NeedPhoto } from "@/components/NeedPhoto";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Timeline } from "@/components/Timeline";
+import { arrivalPhotoUrl } from "@/lib/arrivalPhoto";
 import { formatShortDate, formatUsd } from "@/lib/format";
 import { arrivedAt, itemName, reasonLabel } from "./impactItems";
 
 /**
  * One item the donor's gift paid for (ImpactPhone.dc.html): the arrival photo large once it has
- * arrived, otherwise the product with "We'll post a photo here when it arrives." Every amount,
+ * arrived, otherwise the product with "We'll post a photo here when it arrives." (or, delivered
+ * without the public delivery, the card's arrival photo in the product's place). Every amount,
  * status and date is the server's. Staff messages are plain text.
  */
 export function ImpactItemCard({ item }: { item: ImpactItem }) {
@@ -43,20 +45,22 @@ export function ImpactItemCard({ item }: { item: ImpactItem }) {
   return (
     <article aria-labelledby={titleId} className="flex flex-col gap-3.5 rounded-xl border bg-surface p-4">
       <div className="flex items-start gap-3">
-        <ProductPhoto
-          product={need.product}
-          category={need.category}
+        <NeedPhoto
+          need={need}
           className="size-16 rounded-[10px]"
           placeholderClassName="rounded-[10px]"
           iconClassName="size-6"
+          badgeClassName="bottom-1 left-1 px-1.5 text-[10px]"
         />
         <ItemSummary item={item} titleId={titleId} showStatus />
       </div>
       {timeline}
       <p className="text-[13px] text-muted-foreground">
-        {need.status === "delivered"
-          ? `It arrived at ${item.orgName}. There's no photo for this one.`
-          : "We'll post a photo here when it arrives."}
+        {need.status !== "delivered"
+          ? "We'll post a photo here when it arrives."
+          : arrivalPhotoUrl(need)
+            ? `It arrived at ${item.orgName}.`
+            : `It arrived at ${item.orgName}. There's no photo for this one.`}
       </p>
     </article>
   );

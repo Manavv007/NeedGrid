@@ -1,8 +1,9 @@
 import type { NeedCard } from "@needgrid/shared";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TileCard } from "@/features/tiles/TileCard";
+import { MOCK_UPLOAD_URL } from "@/lib/cloudinary";
 import { DEMO_NEEDS, needs } from "@/mocks/fixtures";
 
 // Date text depends on the clock, so it is pinned. Only Date is faked: React and Testing Library
@@ -166,18 +167,55 @@ describe("TileCard", () => {
     expect(tile.getAllByRole("link")).toHaveLength(1);
   });
 
-  it("delivered: Delivered badge and a See the photo link to the need page", () => {
+  it("delivered: Delivered badge, the arrival photo labelled Arrived, and a See the photo link", () => {
     const need = card(IDS.diapers3);
+    expect(need.deliveryPhotoUrl).toBe(MOCK_UPLOAD_URL);
     const { article } = renderTile(need);
     const tile = within(article);
 
     expect(tile.getByText("Delivered")).toBeInTheDocument();
     expect(tile.getByText("Delivered · photo on the item page")).toBeInTheDocument();
     expect(tile.getByRole("link", { name: /^See the photo/ })).toHaveAttribute("href", needHref(need));
-    expect(tile.getByRole("img", { name: need.product?.title ?? "" })).toBeInTheDocument();
+    const photo = tile.getByRole("img", { name: "Arrival photo of Diapers, size 3" });
+    expect(photo).toHaveAttribute("src", MOCK_UPLOAD_URL);
+    expect(photo).toHaveAttribute("loading", "lazy");
+    expect(photo.parentElement).toHaveTextContent("Arrived");
+    // The product photo is only a decorative corner thumbnail now.
+    expect(tile.queryByRole("img", { name: need.product?.title ?? "" })).not.toBeInTheDocument();
     expect(tile.queryByRole("progressbar")).not.toBeInTheDocument();
     expect(tile.queryByRole("link", { name: /Fund|Help finish/ })).not.toBeInTheDocument();
     expectNoNestedInteractives(article);
+  });
+
+  it("delivered without an arrival photo, or with one off Cloudinary: the product photo", () => {
+    const need = card(IDS.diapers3);
+    for (const deliveryPhotoUrl of [
+      null,
+      undefined,
+      "https://example.com/arrival.jpg",
+      "http://res.cloudinary.com/x.jpg",
+    ]) {
+      const { unmount } = renderTile({ ...need, deliveryPhotoUrl });
+      expect(screen.getByRole("img", { name: need.product?.title ?? "" })).toBeInTheDocument();
+      expect(screen.queryByRole("img", { name: /^Arrival photo/ })).not.toBeInTheDocument();
+      expect(screen.queryByText("Arrived")).not.toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it("an arrival photo that fails to load falls back to the product photo", () => {
+    const need = card(IDS.diapers3);
+    renderTile(need);
+    fireEvent.error(screen.getByRole("img", { name: "Arrival photo of Diapers, size 3" }));
+    expect(screen.getByRole("img", { name: need.product?.title ?? "" })).toBeInTheDocument();
+    expect(screen.queryByText("Arrived")).not.toBeInTheDocument();
+  });
+
+  it("not delivered: an arrival photo URL is ignored", () => {
+    const need = { ...card(IDS.socks), deliveryPhotoUrl: MOCK_UPLOAD_URL };
+    renderTile(need);
+    expect(screen.getByRole("img", { name: need.product?.title ?? "" })).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /^Arrival photo/ })).not.toBeInTheDocument();
   });
 
   it("renders nothing for drafts and closed needs", () => {

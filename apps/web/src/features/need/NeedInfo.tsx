@@ -1,6 +1,6 @@
 import type { DeliveryPublic, NeedCard, OrgPublic } from "@needgrid/shared";
 import { ExternalLink } from "lucide-react";
-import { ProductPhoto } from "@/components/ProductPhoto";
+import { NeedPhoto } from "@/components/NeedPhoto";
 import { StatusBadge } from "@/components/StatusBadge";
 import { UrgencyBadge } from "@/components/UrgencyBadge";
 import { isDonatable } from "@/features/tiles/filterNeeds";
@@ -12,7 +12,9 @@ type NeedInfoProps = { need: NeedCard; org: OrgPublic; delivery: DeliveryPublic 
 
 /**
  * Photo, urgency + deadline, title, "2 × pack of 150 · View at Walmart" and why it's needed
- * (NeedDetail.dc.html). Once delivered with a photo, the arrival photo takes the product photo's place.
+ * (NeedDetail.dc.html). Once delivered with a photo, the arrival photo takes the product photo's place:
+ * large with the staff message when the public delivery came with the page, otherwise the card's
+ * `deliveryPhotoUrl` in the photo's own spot.
  */
 export function NeedInfo({ need, org, delivery }: NeedInfoProps) {
   const arrived = need.status === "delivered" && delivery !== null;
@@ -28,14 +30,14 @@ export function NeedInfo({ need, org, delivery }: NeedInfoProps) {
   }
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:gap-6">
-      <ProductPhoto
-        product={need.product}
-        category={need.category}
+      <NeedPhoto
+        need={need}
         loading="eager"
         className="h-50 w-full rounded-xl border p-4 sm:aspect-square sm:h-auto sm:max-w-90 sm:flex-[1_1_280px] sm:p-6"
         placeholderClassName="size-37.5 rounded-xl sm:size-[70%]"
         iconClassName="size-10 sm:size-11"
         labelClassName="text-[13px] sm:text-sm"
+        badgeClassName="bottom-3 left-3 px-2.5 py-1 text-xs"
       />
       <div className="sm:flex-[1_1_280px]">{text}</div>
     </div>

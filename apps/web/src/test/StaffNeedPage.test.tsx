@@ -100,18 +100,64 @@ describe("Staff need page /staff/needs/:id by status", () => {
     expect(within(order).queryByRole("link")).not.toBeInTheDocument();
   });
 
-  it("funded with a proposed plan from earlier: shows it, and asks for a fresh check for the money outcome", async () => {
-    planOf(HARBOR, ID.laundry);
-    await openPage(ID.laundry, "Laundry detergent");
+  it("reload with a proposed plan: the server's plan gives the badge, the surplus wording and the button", async () => {
+    planOf(HARBOR, ID.formula);
+    await openPage(ID.formula, "Infant formula");
     const card = step(/Step 1 · Approve the purchase/);
-    expect(within(card).getByText("Tide Original Liquid Laundry Detergent, 92 fl oz")).toBeInTheDocument();
-    expect(within(card).getByText("Price in this plan")).toBeInTheDocument();
-    expect(within(card).queryByText("Cheaper")).not.toBeInTheDocument();
-    expect(paragraph("Check the price again to see what happens to the money before you approve.")).toBeInTheDocument();
+    expect(within(card).getByText("Price now")).toBeInTheDocument();
+    expect(within(card).getByText("Cheaper")).toBeInTheDocument();
+    expect(paragraph("$12.00 surplus will move to Diapers, size 4, your next most urgent need.")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Check the price again to see what happens to the money before you approve."),
+    ).not.toBeInTheDocument();
     expect(within(card).getByRole("button", { name: "Approve purchase" })).toBeEnabled();
+    // The other offers only come with a fresh check.
     expect(within(card).getByRole("button", { name: "Check the price again" })).toBeInTheDocument();
     expect(step(/Step 2/)).toHaveTextContent("Unlocks after approval");
+
+    await userEvent.click(within(card).getByRole("button", { name: "Approve purchase" }));
+    expect(await screen.findByText("Approved. $12.00 moved to Diapers, size 4.")).toBeInTheDocument();
   });
+
+  it("reload with a pricier proposed plan: gap wording and 'ask for $X more'", async () => {
+    planOf(HARBOR, ID.toothbrushes);
+    await openPage(ID.toothbrushes, "Kids' toothbrushes");
+    const card = step(/Step 1 · Approve the purchase/);
+    expect(within(card).getByText("Pricier")).toBeInTheDocument();
+    expect(paragraph("Price went up: the tile will ask donors for $3.00 more.")).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Approve and ask for $3 more" })).toBeEnabled();
+  });
+
+  it.each([
+    ["null", null],
+    ["missing", undefined],
+  ])(
+    "reload with a proposed plan whose `plan` is %s: asks for a fresh check for the money outcome",
+    async (_, value) => {
+      planOf(HARBOR, ID.formula);
+      server.use(
+        http.get(`${API}/api/staff/needs/:id`, ({ params }) => {
+          const detail = mockDb.getStaffNeedDetail(HARBOR, String(params.id));
+          if (!detail) return undefined;
+          const purchases = detail.purchases.map((purchase) => {
+            const copy: Record<string, unknown> = { ...purchase, plan: value };
+            if (value === undefined) delete copy.plan;
+            return copy;
+          });
+          return HttpResponse.json({ ...detail, purchases });
+        }),
+      );
+      await openPage(ID.formula, "Infant formula");
+      const card = step(/Step 1 · Approve the purchase/);
+      expect(within(card).getByText("Price in this plan")).toBeInTheDocument();
+      expect(within(card).queryByText("Cheaper")).not.toBeInTheDocument();
+      expect(
+        paragraph("Check the price again to see what happens to the money before you approve."),
+      ).toBeInTheDocument();
+      expect(within(card).getByRole("button", { name: "Approve purchase" })).toBeEnabled();
+      expect(within(card).getByRole("button", { name: "Check the price again" })).toBeInTheDocument();
+    },
+  );
 
   it("funded with an approved purchase: Step 2 unlocked with the buy link", async () => {
     mockDb.approvePurchase(HARBOR, planOf(HARBOR, ID.laundry).purchase.id);
@@ -234,6 +280,21 @@ describe("Purchase plan", () => {
 
     // The next need's tile moved on the public wall.
     expect(mockDb.getOrgPage("harbor-food-bank")?.needs.find((n) => n.id === ID.diapers4)?.fundedCents).toBe(8200);
+  });
+
+  it("a surplus spread over several needs: the toast lists each with what it got", async () => {
+    // A donor leaves the diapers only $11 of room, so $1 of the $12 goes on to the next need.
+    const order = mockDb.createOrder({ needId: ID.diapers4, amountCents: 300, rollOverConsent: true });
+    if (order.kind !== "ok") throw new Error("expected an order");
+    mockDb.capture(order.order.orderId);
+    await openPage(ID.formula, "Infant formula");
+    await userEvent.click(screen.getByRole("button", { name: "Check price & plan purchase" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Approve purchase" }));
+    expect(
+      await screen.findByText(
+        "Approved. $12.00 moved to 2 needs: Diapers, size 4 ($11.00), Canned chicken, 12.5 oz ($1.00).",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("shows the staged wait while the price check runs", async () => {

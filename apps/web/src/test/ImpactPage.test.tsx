@@ -78,7 +78,7 @@ describe("Impact page /impact/:token", () => {
 
     const delivered = card("Diapers, size 3");
     const photo = within(delivered).getByRole("img", { name: "Diapers, size 3 after it arrived at Harbor Food Bank" });
-    expect(photo).toHaveAttribute("src", expect.stringMatching(/\/mock\/arrival\.svg$/));
+    expect(photo).toHaveAttribute("src", MOCK_UPLOAD_URL);
     expect(badge(delivered, "Delivered")).toBeInTheDocument();
     expect(within(delivered).getByRole("heading", { level: 3, name: "Your diapers arrived!" })).toBeInTheDocument();
     const deliveredAt = mockDb.getImpact(DEMO_IMPACT_TOKEN)?.items[0]?.delivery?.deliveredAt;

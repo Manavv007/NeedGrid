@@ -2,11 +2,11 @@ import {
   AgentActionListRes,
   AgentActionRes,
   ApiError,
+  CreateInvoiceResult,
   NeedCard,
   paths,
   ReconcileReport,
   SponsorInvoiceListRes,
-  SponsorInvoiceView,
   STAFF_KEY_HEADER,
   type AgentAction,
   type AgentStreamEvent,
@@ -16,6 +16,7 @@ import { BAD_LINE_MESSAGE, readNdjson } from "@/lib/ndjson";
 import { mockReconcileReport } from "@/mocks/assistant";
 import { DEMO_NEEDS, ORG_IDS, sponsorInvoices } from "@/mocks/fixtures";
 import { AMOUNTS_CHANGED_ERROR, CHAT_REQUESTS_PER_MINUTE, mockDb, SPONSOR_HOLD_DAYS } from "@/mocks/mockDb";
+import { scenariosFromSearch, wantsRealisticChat } from "@/mocks/scenarios";
 
 const API = "http://api.test";
 const ROOM12 = ORG_IDS.room12;
@@ -136,7 +137,8 @@ describe("mock approve and reject (A §8.6, §8.7)", () => {
       approved = AgentActionRes.parse({ action: result.action }).action;
     });
     expect(approved).toMatchObject({ status: "executed", error: null, decidedAt: expect.any(String) });
-    const invoice = SponsorInvoiceView.parse(approved && (approved as AgentAction).result);
+    // A's executor result: `CreateInvoiceResult` (shared v1.1.0).
+    const invoice = CreateInvoiceResult.parse(approved && (approved as AgentAction).result).sponsorInvoice;
     expect(invoice).toMatchObject({
       recipientEmail: "sponsor@example.com",
       recipientName: "Acme Hardware",
@@ -350,5 +352,42 @@ describe("mock assistant chat (B §9.6)", () => {
       { type: "error", message: BAD_LINE_MESSAGE },
     ]);
     expect(bad.events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("?mock=realisticChat: one text delta per model step, a later step starting with a blank line, B's summaries", async () => {
+    expect(wantsRealisticChat("?mock=declined,realisticChat")).toBe(true);
+    expect(scenariosFromSearch("?mock=realisticChat")).toEqual([]);
+    mockDb.setRealisticChat(true);
+
+    const { events } = await chat("Invoice Acme Hardware (sponsor@example.com) for the whole winter-coats list");
+    const kinds = events.map((e) =>
+      e.type === "tool_call" || e.type === "tool_result" ? `${e.type}:${e.tool}` : e.type,
+    );
+    expect(kinds).toEqual([
+      "text",
+      "tool_call:list_needs",
+      "tool_result:list_needs",
+      "tool_call:propose_invoice",
+      "tool_result:propose_invoice",
+      "action_proposed",
+      "text",
+      "done",
+    ]);
+    const texts = events.flatMap((e) => (e.type === "text" ? [e.delta] : []));
+    expect(texts).toEqual([
+      "Let me find the needs for that invoice.",
+      "\n\nI've prepared it, please review the approval card.",
+    ]);
+    expect(events.find((e) => e.type === "tool_result")).toMatchObject({
+      summary: "Looked up your needs · found 4 items",
+    });
+
+    // Not used up: the next reply streams the same way, and the reconcile line is B's.
+    const check = await chat("Check this week's money matches our records");
+    expect(check.events.filter((e) => e.type === "text")).toHaveLength(2);
+    const result = check.events.find((e) => e.type === "tool_result");
+    expect(result?.type === "tool_result" ? result.summary : "").toMatch(
+      /^Checked PayPal against your records · all \d+ payments? match/,
+    );
   });
 });

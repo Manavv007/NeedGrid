@@ -22,6 +22,10 @@
  * One more switch isn't used up: `liveDemo` starts a pretend donor in this tab (liveDemo.ts), so
  * live updates can be watched without a second browser.
  *
+ * Neither is `realisticChat`: every assistant reply in this tab streams like B's real route
+ * (NOTES.md §19): one text delta per model step (whole sentences), a later step's text starting
+ * with "\n\n", and B's tool summaries ("Looked up your needs · found 4 items").
+ *
  * MSW handlers only see the API URL, so the page URL is read once when the mock API starts
  * (`?mock=fullyFunded`, `?mock=declined,cancel`, or the param repeated). Tests arm them directly.
  */
@@ -39,6 +43,7 @@ const MOCK_SCENARIOS = [
 export type MockScenario = (typeof MOCK_SCENARIOS)[number];
 
 const LIVE_DEMO = "liveDemo";
+const REALISTIC_CHAT = "realisticChat";
 
 const isScenario = (value: string): value is MockScenario => (MOCK_SCENARIOS as readonly string[]).includes(value);
 
@@ -57,4 +62,9 @@ export function scenariosFromSearch(search: string): MockScenario[] {
 /** `?mock=liveDemo` (alone or next to other scenarios). */
 export function wantsLiveDemo(search: string): boolean {
   return mockNames(search).includes(LIVE_DEMO);
+}
+
+/** `?mock=realisticChat` (alone or next to other scenarios). */
+export function wantsRealisticChat(search: string): boolean {
+  return mockNames(search).includes(REALISTIC_CHAT);
 }

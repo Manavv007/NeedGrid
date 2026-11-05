@@ -16,6 +16,7 @@ const API = "http://api.test";
 const HARBOR = ORG_IDS.harbor;
 const ID = {
   diapers4: DEMO_NEEDS.fourteenLeft, // open, $70 of $84, Harbor's most urgent
+  chicken: "4c1f7a2e-9b3d-4e5f-8a6b-000000000104", // open, Harbor's next most urgent
   formula: DEMO_NEEDS.priceDrop, // funded $92, fresh price cheaper → $80
   tuna: "4c1f7a2e-9b3d-4e5f-8a6b-000000000108", // topping_up, approved purchase
   toothbrushes: "4c1f7a2e-9b3d-4e5f-8a6b-000000000109", // funded $38, fresh price pricier → $41
@@ -65,9 +66,30 @@ describe("mock purchase plan (B's route)", () => {
     expect(res.money).toMatchObject({ kind: "surplus", cents: 1200, nextNeed: { id: ID.diapers4 } });
     expect(res.purchase.flags).toEqual(["Price dropped 13%", "In stock"]);
     expect(res.alternatives.length).toBeGreaterThan(0);
+    // The purchase carries the same plan (A's createProposedPurchase result, shared v1.1.0).
+    expect(res.purchase.plan).toEqual({ priceChange: res.priceChange, money: res.money });
     // Nothing moves until approval.
     expect(staffNeed(HARBOR, ID.formula).need).toMatchObject({ status: "funded", fundedCents: 9200 });
     expect(staffNeed(HARBOR, ID.formula).purchases[0]?.id).toBe(res.purchase.id);
+  });
+
+  it("GET staff need: `plan` on proposed purchases, recomputed on every read; null on the others", () => {
+    const first = plan(HARBOR, ID.formula);
+    const second = plan(HARBOR, ID.formula);
+    const [proposed, superseded] = staffNeed(HARBOR, ID.formula).purchases;
+    expect(proposed).toMatchObject({ id: second.purchase.id, status: "proposed" });
+    expect(proposed?.plan).toMatchObject({
+      priceChange: "cheaper",
+      money: { kind: "surplus", cents: 1200, nextNeed: { id: ID.diapers4, remainingCents: 1400 } },
+    });
+    expect(superseded).toMatchObject({ id: first.purchase.id, status: "superseded", plan: null });
+
+    // A donor fills the diapers: the next read names the next most urgent need instead.
+    donate(ID.diapers4, 1400);
+    const reread = staffNeed(HARBOR, ID.formula).purchases[0]?.plan;
+    expect(reread?.money).toMatchObject({ kind: "surplus", cents: 1200, nextNeed: { id: ID.chicken } });
+
+    expect(staffNeed(HARBOR, ID.tuna).purchases[0]).toMatchObject({ status: "approved", plan: null });
   });
 
   it("pricier → gap, same price → exact, and a hand-written product is never refreshed", () => {
@@ -108,9 +130,14 @@ describe("mock approve and mark ordered (A's rules)", () => {
     const { purchase } = plan(HARBOR, ID.formula);
     const res = approve(HARBOR, purchase.id);
 
-    expect(res.surplusMoved).toEqual({ toNeedId: ID.diapers4, toNeedTitle: "Diapers, size 4", amountCents: 1200 });
+    expect(res.surplusMoved).toEqual({
+      toNeedId: ID.diapers4,
+      toNeedTitle: "Diapers, size 4",
+      amountCents: 1200,
+      moves: [{ needId: ID.diapers4, needTitle: "Diapers, size 4", amountCents: 1200 }],
+    });
     expect(res.gapCents).toBeNull();
-    expect(res.purchase).toMatchObject({ status: "approved", approvedAt: expect.any(String) });
+    expect(res.purchase).toMatchObject({ status: "approved", approvedAt: expect.any(String), plan: null });
     expect(res.need).toMatchObject({ status: "funded", fundedCents: 8000, targetCents: 8000, remainingCents: 0 });
     expect(res.need.product?.unitPriceCents).toBe(3679);
 
@@ -122,6 +149,25 @@ describe("mock approve and mark ordered (A's rules)", () => {
       type: "purchase_approved",
       label: "Purchase approved at CVS",
     });
+  });
+
+  it("surplus with less room on the first need: spread over the next needs, each listed in `moves`", () => {
+    donate(ID.diapers4, 300); // $11 of room left on the diapers
+    const chicken = staffNeed(HARBOR, ID.chicken).need;
+    const { purchase } = plan(HARBOR, ID.formula);
+    const res = approve(HARBOR, purchase.id);
+
+    expect(res.surplusMoved).toEqual({
+      toNeedId: ID.diapers4,
+      toNeedTitle: "Diapers, size 4",
+      amountCents: 1200,
+      moves: [
+        { needId: ID.diapers4, needTitle: "Diapers, size 4", amountCents: 1100 },
+        { needId: ID.chicken, needTitle: "Canned chicken, 12.5 oz", amountCents: 100 },
+      ],
+    });
+    expect(staffNeed(HARBOR, ID.diapers4).need).toMatchObject({ status: "funded", remainingCents: 0 });
+    expect(staffNeed(HARBOR, ID.chicken).need.fundedCents).toBe(chicken.fundedCents + 100);
   });
 
   it("gap: the need goes back to topping_up for the difference; mark ordered waits until it's funded", () => {
