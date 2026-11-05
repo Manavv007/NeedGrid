@@ -596,3 +596,17 @@ Where things go: **decisions** → this table. **Requests and action items for a
   Record the donation scene before approving the formula plan, or the surplus fills the diapers.
 - **Reseeding = `--reset`:** plain `seed` skips orgs that already have needs, so changing seeded data means emptying
   every table first. On production that also deletes real sandbox donations, invoices and approval cards.
+
+- **Production reseeded Nov 5 (`seed --reset --yes` on `ep-calm-tree-…`)**, brought forward from Nov 9 because the team
+  may submit early. 121 needs, 643 donations, 30 purchases, 18 deliveries, 121 embeddings (16 backfilled a minute
+  later), `check:money` OK. The Acme invoice, its $46 donation and all approval cards were deleted (PayPal still has
+  the $46 payment: reconcile will report it as `missing_in_records` until it leaves the 7-day window).
+  Verified on the live API: diapers 4 open with $14 left, formula funded (stored $70.20 × 4 vs cvs.com $51.99 →
+  "Price dropped 26%", $79 surplus to Diapers, size 4), wipes ordered, 4 coats open, Match me answers.
+  **To run a script against production:** `$env:DATABASE_URL = <PROD_DATABASE_URL>` first. `tsx --env-file` never
+  overrides a variable that's already set, so this takes precedence over `.env`. Then `Remove-Item Env:DATABASE_URL`.
+
+- **AG Studio trial licence is live (Nov 5)** on needgrid-web (`VITE_AG_STUDIO_LICENSE`, set in Render, not in git).
+  Trial keys start `[TRIAL]_this_{AG_Studio_Pro}_…`, not `Using_this_…`, and this one deactivates on 20 December 2026.
+  The spaces inside `{20 December 2026}` belong to the key. To check a deploy, search the lazy `DashboardPage-*.js`
+  chunk (~5 MB) for `[TRIAL]_this_`; the main `index-*.js` doesn't contain it.
