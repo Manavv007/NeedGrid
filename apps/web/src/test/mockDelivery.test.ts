@@ -80,9 +80,9 @@ describe("mock delivery check (B's route)", () => {
         message: "On the shelf by lunch. Thank you for helping us get it.",
         confirmedAt: null,
       },
-      need: { id: ID.wipes, status: "delivered" },
+      need: { id: ID.wipes, status: "delivered", deliveryPhotoUrl: MOCK_UPLOAD_URL },
     });
-    expect(cards.map((c) => [c.id, c.status])).toEqual([[ID.wipes, "delivered"]]);
+    expect(cards.map((c) => [c.id, c.status, c.deliveryPhotoUrl])).toEqual([[ID.wipes, "delivered", MOCK_UPLOAD_URL]]);
     expect(staffNeed(ID.wipes).timeline.at(-1)).toMatchObject({ type: "delivered", label: "Arrived" });
     expect(publicNeed(ID.wipes).delivery).toMatchObject({ photoUrl: MOCK_UPLOAD_URL, message: expect.any(String) });
     // Sam's impact page (a fixture gift in the ledger) now shows the wipes' photo.
@@ -100,7 +100,7 @@ describe("mock delivery check (B's route)", () => {
     });
     expect(res).toMatchObject({
       delivery: { matchScore: MOCK_REVIEW_SCORE, needsReview: true, confirmedAt: null },
-      need: { status: "ordered" },
+      need: { status: "ordered", deliveryPhotoUrl: null },
     });
     expect(cards).toEqual([]);
     expect(staffNeed(ID.wipes).delivery).toMatchObject({ needsReview: true });
@@ -143,9 +143,9 @@ describe("mock confirm delivery (staff override)", () => {
     });
     expect(res).toMatchObject({
       delivery: { id: delivery.id, confirmedAt: expect.any(String), message: "All 4 packs arrived. Thank you!" },
-      need: { status: "delivered" },
+      need: { status: "delivered", deliveryPhotoUrl: MOCK_UPLOAD_URL },
     });
-    expect(cards.map((c) => c.status)).toEqual(["delivered"]);
+    expect(cards.map((c) => [c.status, c.deliveryPhotoUrl])).toEqual([["delivered", MOCK_UPLOAD_URL]]);
     expect(publicNeed(ID.wipes).delivery).toMatchObject({ message: "All 4 packs arrived. Thank you!" });
     expect(samsWipes()?.delivery?.deliveredAt).toBe(staffNeed(ID.wipes).delivery?.confirmedAt);
   });

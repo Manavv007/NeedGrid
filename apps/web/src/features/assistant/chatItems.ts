@@ -30,6 +30,9 @@ export type ChatItem =
 let nextId = 0;
 const newId = () => `chat-${(nextId += 1)}`;
 
+/** Blank lines (and stray spaces between them) before a bubble's first word. */
+const LEADING_LINE_BREAKS = /^\s*[\r\n]\s*/;
+
 /** The chat as it was saved (text only): every staff message starts a turn. */
 export function itemsFromTranscript(messages: readonly TranscriptMessage[]): ChatItem[] {
   let turn = 0;
@@ -68,7 +71,10 @@ function reportOf(tool: string, data: unknown): ReconcileReport | null {
 
 /**
  * The conversation after one stream event of `turn`:
- * - `text` grows the turn's current assistant bubble (a new bubble after a tool line or card);
+ * - `text` grows the turn's current assistant bubble (a new bubble after a tool line or card). The
+ *   real assistant sends one delta per model step and starts a later step with "\n\n": inside a
+ *   bubble that is a new paragraph; at the start of a new bubble the line breaks are dropped (a
+ *   delta of only line breaks starts nothing);
  * - `tool_call` adds a running status line; `tool_result` finishes the newest running line for that
  *   tool (or adds a finished one), with the reconcile report when it parses;
  * - `action_proposed` adds the approval card once per action id;
@@ -86,7 +92,9 @@ export function applyEvent(
       if (last?.kind === "assistant" && last.turn === turn) {
         return [...items.slice(0, -1), { ...last, text: last.text + event.delta }];
       }
-      return [...items, { kind: "assistant", id: newId(), turn, text: event.delta }];
+      const text = event.delta.replace(LEADING_LINE_BREAKS, "");
+      if (text === "") return [...items];
+      return [...items, { kind: "assistant", id: newId(), turn, text }];
     }
     case "tool_call":
       return [

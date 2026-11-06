@@ -1,9 +1,14 @@
 import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MOCK_UPLOAD_URL } from "@/lib/cloudinary";
 import { DEMO_NEEDS } from "@/mocks/fixtures";
 import { mockDb } from "@/mocks/mockDb";
+import { server } from "@/mocks/node";
 import { renderRoute } from "./render";
+
+const API = "http://api.test";
 
 const ID = {
   diapers4: DEMO_NEEDS.fourteenLeft, // open, $14 left of $84, due tomorrow
@@ -130,7 +135,7 @@ describe("Need page /o/:slug/n/:needId", () => {
     await screen.findByRole("heading", { level: 1, name: "Diapers, size 3" });
     expect(screen.getByRole("img", { name: "Diapers, size 3 after it arrived at Harbor Food Bank" })).toHaveAttribute(
       "src",
-      expect.stringMatching(/\/mock\/arrival\.svg$/),
+      MOCK_UPLOAD_URL,
     );
     const caption = screen.getByText(/were on the shelf by lunch/);
     expect(caption.closest("figcaption")).toHaveTextContent("Harbor Food Bank staff");
@@ -138,6 +143,21 @@ describe("Need page /o/:slug/n/:needId", () => {
     expect(screen.getByRole("heading", { name: "How it got here" })).toBeInTheDocument();
     expect(stages()).toHaveLength(4);
     for (const stage of stages()) expect(stage).toMatch(/, done/);
+    expect(screen.queryByRole("img", { name: /Pampers/ })).not.toBeInTheDocument();
+  });
+
+  it("delivered without the public delivery: the card's arrival photo takes the product photo's place", async () => {
+    server.use(
+      http.get(`${API}/api/needs/:id`, ({ params }) => {
+        const detail = mockDb.getNeedDetail(String(params.id));
+        return detail ? HttpResponse.json({ ...detail, delivery: null }) : undefined;
+      }),
+    );
+    renderRoute(harborNeed(ID.diapers3));
+    await screen.findByRole("heading", { level: 1, name: "Diapers, size 3" });
+    const photo = screen.getByRole("img", { name: "Arrival photo of Diapers, size 3" });
+    expect(photo).toHaveAttribute("src", MOCK_UPLOAD_URL);
+    expect(photo.parentElement).toHaveTextContent("Arrived");
     expect(screen.queryByRole("img", { name: /Pampers/ })).not.toBeInTheDocument();
   });
 

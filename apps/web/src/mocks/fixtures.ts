@@ -26,6 +26,7 @@ import {
   type Category,
   type NeedStatus,
 } from "@needgrid/shared";
+import { MOCK_UPLOAD_URL } from "@/lib/mockUploadUrl";
 import { qrPngDataUrl } from "./qrPng";
 
 // ---------- helpers ----------
@@ -52,6 +53,12 @@ function rel(days: number, time: string): string {
 /** Mock images live in public/mock/. The schemas need absolute URLs, so build them from this page's origin. */
 const ORIGIN = typeof window === "undefined" ? "http://localhost:5173" : window.location.origin;
 export const mockImage = (name: string) => `${ORIGIN}/mock/${name}.svg`;
+
+/**
+ * Arrival photos are on Cloudinary like real ones (the API and the web only show those): the same
+ * Cloudinary-style URL mock uploads return, which the browser mock answers with public/mock/arrival.svg.
+ */
+const ARRIVAL_PHOTO_URL = MOCK_UPLOAD_URL;
 
 type OrgKey = "harbor" | "paws" | "room12";
 
@@ -1388,6 +1395,7 @@ function buildPurchases(s: NeedSeed, card: NeedCard, product: ProductSnapshot): 
 function buildNeed(s: NeedSeed): MockNeed {
   const product = productSnapshot(s.product, s.createdAt, s.id);
   const targetCents = computeTargetCents(product.unitPriceCents, s.quantity);
+  const delivered = s.delivery !== undefined && s.deliveredAt !== undefined;
   const card = NeedCard.parse({
     id: s.id,
     orgId: ORG_IDS[s.org],
@@ -1408,10 +1416,12 @@ function buildNeed(s: NeedSeed): MockNeed {
     deadlineAt: s.deadlineAt,
     createdAt: s.createdAt,
     updatedAt: s.updatedAt,
+    // Shared v1.1.0: the latest passed or confirmed delivery's photo; the API always sends the field.
+    deliveryPhotoUrl: delivered ? ARRIVAL_PHOTO_URL : null,
   });
   assertNeedConsistent(card, s);
 
-  const photoUrl = mockImage("arrival");
+  const photoUrl = ARRIVAL_PHOTO_URL;
   const delivery =
     s.delivery && s.deliveredAt
       ? DeliveryPublic.parse({ photoUrl, message: s.delivery.message, deliveredAt: s.deliveredAt })

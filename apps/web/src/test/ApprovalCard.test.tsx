@@ -216,6 +216,19 @@ describe("ApprovalCard: outcomes", () => {
     expect(print).toHaveBeenCalledTimes(1);
   });
 
+  it("executed draft invoice (no QR yet, A: QR codes only exist for sent invoices): no link, no QR, no error", async () => {
+    const action = propose({ send: false });
+    renderCards(action);
+    await userEvent.click(approveIn(screen.getByRole("article", { name: TITLE })));
+    expect(await screen.findByText("Approved, saved as a draft")).toBeInTheDocument();
+    expect(screen.getByText("Saved as a draft for sponsor@example.com. It hasn't been sent.")).toBeInTheDocument();
+    expect(screen.getByText("No payment link yet.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /QR code/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    const [draft] = mockDb.listSponsorInvoices(ROOM12);
+    expect(draft).toMatchObject({ status: "draft", payerViewUrl: null, qrImageDataUrl: null });
+  });
+
   it("when `result` isn't an invoice, the payer link comes from the invoices list", async () => {
     server.use(
       http.post(APPROVE, ({ params }) => {

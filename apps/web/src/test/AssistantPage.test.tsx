@@ -158,6 +158,45 @@ describe("Assistant: streaming", () => {
     expect(screen.queryByRole("button", { name: "Stop the reply" })).not.toBeInTheDocument();
   });
 
+  it('the real format: a "\\n\\n" delta is a new paragraph, never blank lines at the top of a bubble', async () => {
+    const { reply } = driveChat();
+    const { user } = await openAssistant();
+    await ask(user, "Invoice the winter coats");
+    reply.send({ type: "text", delta: "Let me find the needs for that invoice." });
+    reply.send({ type: "text", delta: "\n\nI'll look them up now." });
+    reply.send(
+      { type: "tool_call", tool: "list_needs", summary: "Looking up your needs…" },
+      { type: "tool_result", tool: "list_needs", summary: "Looked up your needs · found 4 items" },
+      { type: "text", delta: "\n\n" },
+      { type: "text", delta: "\n\nI found 4 items. Who should the invoice go to?" },
+      { type: "done" },
+    );
+    reply.close();
+    await waitFor(() =>
+      expect(assistantBubbles()).toEqual([
+        "Let me find the needs for that invoice.\n\nI'll look them up now.",
+        "I found 4 items. Who should the invoice go to?",
+      ]),
+    );
+    expect(within(conversation()).getByText("Looked up your needs · found 4 items")).toBeInTheDocument();
+  });
+
+  it("?mock=realisticChat: the scripted invoice reply streams one sentence block per step and reads well", async () => {
+    mockDb.setRealisticChat(true);
+    const { user } = await openAssistant();
+    await ask(user, INVOICE_PROMPT);
+    expect(await within(conversation()).findByRole("article", { name: TITLE })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(assistantBubbles()).toEqual([
+        "Let me find the needs for that invoice.",
+        "I've prepared it, please review the approval card.",
+      ]),
+    );
+    const line = within(conversation()).getByText("Looked up your needs · found 4 items").closest("p");
+    expect(line).toHaveTextContent("Done: Looked up your needs · found 4 items");
+    await waitFor(() => expect(box()).toBeEnabled());
+  });
+
   it("a tool line spins, then turns into a check; a reconcile result renders the report table", async () => {
     const { reply } = driveChat();
     const { user } = await openAssistant();

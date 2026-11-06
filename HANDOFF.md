@@ -43,6 +43,7 @@ Format: `- [ ] YYYY-MM-DD from <A|B|C>: <what you need> — <why> (link to PR/is
   - 2026-11-01 B: `POST /api/match` is on branch `feat/reconcile-match` (works on today's production data, no dependency on A). Turn the flag on once it merges. It returns up to 3 matches (fewer only if fewer needs are open), `reason` ≤ 90 chars, 400 for a bad body, 429 per IP (10/min), 503 "The AI is resting, try again tomorrow" at the daily cap (150/day). Without an AI key it still answers (keyword ranking, plain reasons), so no 503 "not configured".
   - 2026-11-05 B (with the user's OK, as an exception to ownership): turned the flag on in `apps/web/src/lib/features.ts` (`matchMe: true`) and flipped the LandingPage test to expect the box (branch `feat/match-me-on`). No other web files changed. `POST /api/match` is live on the deployed API.
 - [ ] 2026-11-01 from C: Mocks now mirror the seed heroes (diapers $14 left, formula price drop → surplus, wipes ordered, 4 coats). If the seed heroes change, tell C — the web's `DEMO_NEEDS` fixtures and the demo tests follow `HEROES` in `catalog.ts` (PR feat/web-real-ready)
+- [ ] 2026-11-06 from C: C will add 'Re-check with this offer' once the purchase-plan route reads `PurchasePlanReq.offerChannel3Id`; tell C when it does (PR feat/web-v110)
 
 ## C — Frontend & Demo (apps/web except src/dashboard, docs/)
 

@@ -25,10 +25,17 @@ export function approveLabel(money: PlanMoney | null): string {
   return money?.kind === "gap" ? `Approve and ask for ${formatUsdShort(money.cents)} more` : "Approve purchase";
 }
 
-/** The toast after approval, built from what the server says it did. */
+/** The toast after approval, built from what the server says it did (`amountCents` is the total moved). */
 export function approvalToast(res: ApprovePurchaseRes): string {
-  if (res.surplusMoved) {
-    return `Approved. ${formatUsd(res.surplusMoved.amountCents)} moved to ${res.surplusMoved.toNeedTitle}.`;
+  const moved = res.surplusMoved;
+  if (moved) {
+    const total = formatUsd(moved.amountCents);
+    const moves = moved.moves ?? [];
+    if (moves.length > 1) {
+      const where = moves.map((m) => `${m.needTitle} (${formatUsd(m.amountCents)})`).join(", ");
+      return `Approved. ${total} moved to ${moves.length} needs: ${where}.`;
+    }
+    return `Approved. ${total} moved to ${moved.toNeedTitle}.`;
   }
   if (res.gapCents) return `Approved. Donors will be asked for ${formatUsd(res.gapCents)} more.`;
   return "Approved.";

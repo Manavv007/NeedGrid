@@ -1,6 +1,12 @@
-import type { AgentAction } from "@needgrid/shared";
+import type { AgentAction, SponsorInvoiceView } from "@needgrid/shared";
 import { describe, expect, it } from "vitest";
-import { approveLabel, executedHeadline, outcomeLine, sendsOnApproval } from "@/features/assistant/actionText";
+import {
+  approveLabel,
+  executedHeadline,
+  invoiceFromResult,
+  outcomeLine,
+  sendsOnApproval,
+} from "@/features/assistant/actionText";
 
 const NEED_ID = "4c1f7a2e-9b3d-4e5f-8a6b-000000000301";
 
@@ -21,6 +27,40 @@ function invoiceAction(args: Record<string, unknown>): AgentAction {
     executedAt: null,
   };
 }
+
+describe("invoiceFromResult: the executed invoice in `result`", () => {
+  const invoice: SponsorInvoiceView = {
+    id: "4c1f7a2e-9b3d-4e5f-8a6b-0000000000f1",
+    paypalInvoiceId: "INV2-AAAA-BBBB-CCCC-DDDD",
+    recipientEmail: "sponsor@example.com",
+    recipientName: null,
+    needIds: [NEED_ID],
+    amountCents: 4800,
+    status: "draft",
+    payerViewUrl: null,
+    qrImageDataUrl: null, // QR codes only exist for sent invoices
+    createdAt: "2026-11-05T10:01:00.000Z",
+  };
+  const executed = (result: unknown): AgentAction => ({
+    ...invoiceAction({ send: false }),
+    status: "executed",
+    result,
+  });
+
+  it("A's CreateInvoiceResult `{ sponsorInvoice }`", () => {
+    expect(invoiceFromResult(executed({ sponsorInvoice: invoice }))).toEqual(invoice);
+  });
+
+  it("a bare SponsorInvoiceView still works", () => {
+    expect(invoiceFromResult(executed(invoice))).toEqual(invoice);
+  });
+
+  it("anything else is no invoice (the card then looks it up in the invoices list)", () => {
+    for (const result of [null, { invoiceId: "elsewhere" }, { sponsorInvoice: { id: "x" } }, "INV2-AAAA"]) {
+      expect(invoiceFromResult(executed(result))).toBeNull();
+    }
+  });
+});
 
 describe("actionText: CreateInvoiceArgs.send defaults to true", () => {
   it('send missing: the invoice is sent on approval, so the button says "Approve and send"', () => {

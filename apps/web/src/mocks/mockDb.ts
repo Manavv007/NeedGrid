@@ -82,10 +82,12 @@ import {
   type OrgStats,
   type OrgSummary,
   type PatchNeedReq,
+  type PriceChange,
   type ProductSnapshot,
   type PublishNeedReq,
   type PurchaseOffer,
   type PurchasePlanRes,
+  type PurchasePlanSummary,
   type PurchaseRes,
   type PurchaseView,
   type SponsorInvoiceView,
@@ -158,6 +160,8 @@ type State = {
   /** When a need became funded in this tab (the timeline's "Fully funded" event). */
   fundedAt: Map<string, string>;
   scenarios: Set<MockScenario>;
+  /** `?mock=realisticChat`: assistant replies stream like B's real route (not used up). */
+  realisticChat: boolean;
   /** Money actions the assistant proposed, newest first, each with its org. */
   agentActions: Array<{ orgId: string; action: AgentAction }>;
   sponsorInvoices: Array<{ orgId: string; invoice: SponsorInvoiceView }>;
@@ -298,6 +302,7 @@ function freshState(): State {
     ]),
     fundedAt: new Map(),
     scenarios: new Set(),
+    realisticChat: false,
     agentActions: [],
     sponsorInvoices: fixtures.sponsorInvoices.map(({ orgId, invoice }) => ({
       orgId,
@@ -529,6 +534,22 @@ function distribute(
   return { leftCents: left, placed };
 }
 
+type SurplusMove = { needId: string; needTitle: string; amountCents: number };
+
+/**
+ * `ApprovePurchaseRes.surplusMoved.moves`: one entry per receiving need with everything it got, in
+ * the order the needs first received money (most urgent first).
+ */
+function movesOf(placed: readonly Placement[]): SurplusMove[] {
+  const byNeed = new Map<string, SurplusMove>();
+  for (const { needId, cents } of placed) {
+    const move = byNeed.get(needId) ?? { needId, needTitle: state.needs.get(needId)?.card.title ?? "", amountCents: 0 };
+    move.amountCents += cents;
+    byNeed.set(needId, move);
+  }
+  return [...byNeed.values()];
+}
+
 /** What one donation paid for, per need and reason, in placement order (capture.ts → buildCaptureRes). */
 function captureResOf(donation: Donation): CaptureRes {
   const groups = new Map<string, { needId: string; reason: AllocationReason; amountCents: number }>();
@@ -685,6 +706,35 @@ function snapshotOf(offer: PurchaseOffer, previous: ProductSnapshot | null, fetc
   };
 }
 
+/** The offer's price against the price the need was posted with. */
+function priceChangeOf(postedCents: number, offerCents: number): PriceChange {
+  if (offerCents < postedCents) return "cheaper";
+  return offerCents > postedCents ? "pricier" : "same";
+}
+
+/**
+ * `priceChange` and `money` for a purchase of this need, from what it has raised right now:
+ * planPurchaseMoney(funded, new target), and a surplus names the org's next most urgent need.
+ */
+function planSummaryOf(need: fixtures.MockNeed, purchase: PurchaseView, postedCents: number): PurchasePlanSummary {
+  const { card } = need;
+  const money = planPurchaseMoney(card.fundedCents, purchase.newTargetCents);
+  return {
+    priceChange: priceChangeOf(postedCents, purchase.offer.unitPriceCents),
+    money: money.kind === "surplus" ? { ...money, nextNeed: nextMostUrgentNeed(card.orgId, card.id) } : money,
+  };
+}
+
+/**
+ * A purchase as the API sends it (shared v1.1.0): `plan` is filled for `proposed` purchases,
+ * recomputed on every read so `nextNeed` is current, and null otherwise.
+ */
+function purchaseViewOf(need: fixtures.MockNeed, purchase: PurchaseView): PurchaseView {
+  const posted = need.card.product?.unitPriceCents;
+  const plan = purchase.status === "proposed" && posted !== undefined ? planSummaryOf(need, purchase, posted) : null;
+  return { ...purchase, plan };
+}
+
 // ---------- deliveries ----------
 
 export type DeliveryResult = { kind: "ok"; delivery: DeliveryRes } | { kind: "notFound" } | StaffRefusal;
@@ -739,12 +789,14 @@ function impactNote(staffNote: string): string | null {
 
 /**
  * core.recordDelivery / confirmDelivery: the need is delivered. Timeline "Arrived", the delivery
- * donors see (dated when it passed the check or was confirmed), and a live update.
+ * donors see (dated when it passed the check or was confirmed), the card's arrival photo
+ * (`deliveryPhotoUrl`, shared v1.1.0) and a live update.
  */
 function markDelivered(need: fixtures.MockNeed, view: DeliveryView): void {
   const deliveredAt = view.confirmedAt ?? view.createdAt;
   need.card.status = "delivered";
   need.card.updatedAt = deliveredAt;
+  need.card.deliveryPhotoUrl = view.photoUrl;
   need.timeline.push({ type: "delivered", at: deliveredAt, label: "Arrived", amountCents: null });
   need.delivery = { photoUrl: view.photoUrl, message: view.message, deliveredAt };
   publishNeedUpdated(need.card.id);
@@ -886,7 +938,8 @@ function executeInvoice(orgId: string, action: AgentAction): void {
   }
   action.status = "executed";
   action.executedAt = at;
-  action.result = structuredClone(invoice);
+  // A's executor result for invoice actions (shared v1.1.0 `CreateInvoiceResult`).
+  action.result = { sponsorInvoice: structuredClone(invoice) };
 }
 
 export const mockDb = {
@@ -917,6 +970,15 @@ export const mockDb = {
   /** True once per arming: the caller applies the scenario now. */
   takeScenario(scenario: MockScenario): boolean {
     return state.scenarios.delete(scenario);
+  },
+
+  /** `?mock=realisticChat` on or off for this tab (until `reset`). */
+  setRealisticChat(on: boolean): void {
+    state.realisticChat = on;
+  },
+
+  isRealisticChat(): boolean {
+    return state.realisticChat;
   },
 
   listOrgSummaries(): OrgSummary[] {
@@ -1057,7 +1119,7 @@ export const mockDb = {
     return {
       need: cardOf(need),
       alternatives: need.alternatives,
-      purchases: need.purchases.map((p) => ({ ...p })),
+      purchases: need.purchases.map((p) => purchaseViewOf(need, p)),
       delivery: need.deliveryView ? { ...need.deliveryView } : null,
       timeline: timelineOf(need),
     };
@@ -1096,6 +1158,7 @@ export const mockDb = {
       deadlineAt: req.deadlineAt,
       createdAt: at,
       updatedAt: at,
+      deliveryPhotoUrl: null,
     };
     const created: fixtures.MockNeed = {
       card,
@@ -1214,7 +1277,6 @@ export const mockDb = {
     const posted = card.product.unitPriceCents;
     const { offer, alternatives, refreshed } = priceCheck(need, card.product);
     const newTargetCents = computeTargetCents(offer.unitPriceCents, card.quantity);
-    const money = planPurchaseMoney(card.fundedCents, newTargetCents);
 
     for (const p of need.purchases) if (p.status === "proposed") p.status = "superseded";
     const purchase: PurchaseView = {
@@ -1232,15 +1294,11 @@ export const mockDb = {
     };
     need.purchases.unshift(purchase);
 
-    const priceChange = offer.unitPriceCents < posted ? "cheaper" : offer.unitPriceCents > posted ? "pricier" : "same";
+    // A's createProposedPurchase result carries the same `plan` as the response's own fields.
+    const plan = planSummaryOf(need, purchase, posted);
     return {
       kind: "ok",
-      plan: {
-        purchase: { ...purchase },
-        priceChange,
-        money: money.kind === "surplus" ? { ...money, nextNeed: nextMostUrgentNeed(card.orgId, needId) } : money,
-        alternatives,
-      },
+      plan: { purchase: { ...purchase, plan }, ...plan, alternatives },
     };
   },
 
@@ -1306,22 +1364,22 @@ export const mockDb = {
 
     const touched = [...new Set([card.id, ...placed.map((p) => p.needId)])];
     for (const id of touched) publishNeedUpdated(id);
-    const first = placed[0];
-    const firstNeed = first ? state.needs.get(first.needId) : undefined;
+    const moves = movesOf(placed);
+    const [first] = moves;
     return {
       kind: "ok",
       approval: {
-        purchase: { ...purchase },
+        purchase: purchaseViewOf(need, purchase),
         need: cardOf(need),
-        // One target need in the contract: the most urgent one, with everything that moved.
-        surplusMoved:
-          first && firstNeed
-            ? {
-                toNeedId: first.needId,
-                toNeedTitle: firstNeed.card.title,
-                amountCents: placed.reduce((sum, p) => sum + p.cents, 0),
-              }
-            : null,
+        // amountCents is the total moved; toNeed* is the first (most urgent) receiver; moves lists them all.
+        surplusMoved: first
+          ? {
+              toNeedId: first.needId,
+              toNeedTitle: first.needTitle,
+              amountCents: moves.reduce((sum, m) => sum + m.amountCents, 0),
+              moves,
+            }
+          : null,
         gapCents: money.kind === "gap" ? money.cents : null,
       },
     };
@@ -1343,7 +1401,7 @@ export const mockDb = {
     need.card.updatedAt = at;
     need.timeline.push({ type: "ordered", at, label: "Ordered", amountCents: null });
     publishNeedUpdated(need.card.id);
-    return { kind: "ok", ordered: { purchase: { ...purchase }, need: cardOf(need) } };
+    return { kind: "ok", ordered: { purchase: purchaseViewOf(need, purchase), need: cardOf(need) } };
   },
 
   /**
@@ -1401,6 +1459,7 @@ export const mockDb = {
       markDelivered(need, view);
     } else {
       need.delivery = { photoUrl: view.photoUrl, message: view.message, deliveredAt: view.confirmedAt };
+      need.card.deliveryPhotoUrl = view.photoUrl;
       publishNeedUpdated(need.card.id);
     }
     return result();

@@ -16,7 +16,12 @@ import { useDocumentTitle } from "@/lib/useDocumentTitle";
 
 const WRONG_PASSCODE = "That passcode didn't work. Check it and try again.";
 const EMPTY_PASSCODE = "Enter your passcode.";
+/** After 20 wrong passcodes from one IP in 10 minutes, the API answers 429 to every staff request. */
+const LOCKED_OUT = "Too many wrong passcodes. Wait 10 minutes, then try again.";
 const GENERIC_FAILURE = "We couldn't sign you in just now. Please try again in a moment.";
+
+/** What the form says under the passcode, and whether it's about the passcode itself (`aria-invalid`). */
+type SignInError = { message: string; invalid: boolean };
 
 /** Public by design (judges use them) and only ever open the PayPal sandbox. */
 const DEMO_PASSCODES = [
@@ -42,7 +47,7 @@ export function StaffLoginPage() {
   const [alreadySignedIn] = useState(() => !signingOut && getStaffKey() !== null);
   const [passcode, setPasscode] = useState("");
   const [visible, setVisible] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<SignInError | null>(null);
   const [pending, setPending] = useState(false);
   const submitting = useRef(false);
 
@@ -56,7 +61,7 @@ export function StaffLoginPage() {
   async function signIn(key: string) {
     const trimmed = key.trim();
     if (trimmed === "") {
-      setError(EMPTY_PASSCODE);
+      setError({ message: EMPTY_PASSCODE, invalid: true });
       return;
     }
     if (submitting.current) return;
@@ -71,7 +76,7 @@ export function StaffLoginPage() {
       void navigate(next, { replace: true });
     } catch (caught) {
       clearStaffKey();
-      setError(failureMessage(caught));
+      setError(failure(caught));
     } finally {
       submitting.current = false;
       setPending(false);
@@ -129,7 +134,7 @@ export function StaffLoginPage() {
                 spellCheck={false}
                 value={passcode}
                 onChange={(event) => setPasscode(event.target.value)}
-                aria-invalid={error !== null}
+                aria-invalid={error?.invalid ?? false}
                 aria-describedby={error ? "passcode-error" : undefined}
                 className="pr-12"
               />
@@ -149,7 +154,7 @@ export function StaffLoginPage() {
             </div>
             {error ? (
               <p id="passcode-error" role="alert" className="text-sm font-medium text-danger">
-                {error}
+                {error.message}
               </p>
             ) : null}
             <Button type="submit" size="lg" disabled={pending}>
@@ -179,9 +184,13 @@ export function StaffLoginPage() {
   );
 }
 
-/** 401 = wrong passcode; no connection keeps the API client's explanation; anything else is generic. */
-function failureMessage(error: unknown): string {
-  if (!(error instanceof ApiClientError)) return GENERIC_FAILURE;
-  if (error.status === 401) return WRONG_PASSCODE;
-  return error.code === "NETWORK" ? error.message : GENERIC_FAILURE;
+/**
+ * 401 = wrong passcode; 429 = locked out for too many wrong passcodes (not marked invalid: the
+ * passcode may be right); no connection keeps the API client's explanation; anything else is generic.
+ */
+function failure(error: unknown): SignInError {
+  if (!(error instanceof ApiClientError)) return { message: GENERIC_FAILURE, invalid: true };
+  if (error.status === 401) return { message: WRONG_PASSCODE, invalid: true };
+  if (error.status === 429) return { message: LOCKED_OUT, invalid: false };
+  return { message: error.code === "NETWORK" ? error.message : GENERIC_FAILURE, invalid: true };
 }

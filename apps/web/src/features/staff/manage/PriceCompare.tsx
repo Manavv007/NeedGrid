@@ -35,7 +35,7 @@ type PriceCompareProps = {
   postedCents: number;
   /** The plan's offer price. */
   offerCents: number;
-  /** From the price check's response; null when this tab only has the stored purchase. */
+  /** From the price check or the purchase's own `plan`; null when the server sent neither. */
   priceChange: PriceChange | null;
 };
 

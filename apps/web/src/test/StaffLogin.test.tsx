@@ -3,12 +3,20 @@ import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
+import { RATE_LIMITED_COPY } from "@/lib/errorCopy";
 import { safeStaffNext } from "@/lib/unauthorized";
 import { server } from "@/mocks/node";
 import { renderRoute } from "./render";
 
 const API = "http://api.test";
 const HARBOR_KEY = "harbor-demo-2026";
+
+/** A's passcode lockout (apps/api/src/plugins/staffAuth.ts): 20 wrong passcodes from one IP in 10 minutes. */
+const lockedOut = () =>
+  HttpResponse.json(
+    { error: { code: "RATE_LIMITED", message: "Too many wrong passcodes. Try again in 10 minutes." } },
+    { status: 429 },
+  );
 
 const storedKey = () => sessionStorage.getItem(STAFF_KEY_STORAGE);
 const where = (router: { state: { location: { pathname: string; search: string } } }) =>
@@ -54,6 +62,17 @@ describe("Staff login /staff/login", () => {
     expect(storedKey()).toBe(HARBOR_KEY);
     expect(sent).toEqual([HARBOR_KEY]);
     expect(router.state.location.search).not.toContain(HARBOR_KEY);
+  });
+
+  it("the passcode lockout (429) says to wait 10 minutes, without marking the passcode wrong", async () => {
+    server.use(http.get(`${API}/api/staff/me`, () => lockedOut()));
+    const { router } = renderRoute("/staff/login");
+    await signInWith(HARBOR_KEY);
+    expect(await screen.findByText("Too many wrong passcodes. Wait 10 minutes, then try again.")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Too many wrong passcodes. Wait 10 minutes, then try again.");
+    expect(screen.getByLabelText("Passcode")).toHaveAttribute("aria-invalid", "false");
+    expect(storedKey()).toBeNull();
+    expect(where(router)).toBe("/staff/login");
   });
 
   it("other failures get a friendly message, not the server's", async () => {
@@ -165,5 +184,27 @@ describe("StaffGate", () => {
     expect(where(router)).toBe(`/staff/login?next=${encodeURIComponent("/staff?tab=funded")}`);
     expect(storedKey()).toBeNull();
     await waitFor(() => expect(staffQueries(queryClient)).toHaveLength(0));
+  });
+
+  it("a 429 mid-session keeps the staff signed in and says to wait (only a 401 signs out)", async () => {
+    sessionStorage.setItem(STAFF_KEY_STORAGE, HARBOR_KEY);
+    server.use(http.get(`${API}/api/staff/needs`, () => lockedOut()));
+    const { router } = renderRoute("/staff?tab=funded");
+
+    expect(await screen.findByText(RATE_LIMITED_COPY)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Needs" })).toBeInTheDocument();
+    expect(storedKey()).toBe(HARBOR_KEY);
+    expect(where(router)).toBe("/staff?tab=funded");
+  });
+
+  it("every staff request locked out (429): the console says why and stays signed in", async () => {
+    sessionStorage.setItem(STAFF_KEY_STORAGE, HARBOR_KEY);
+    server.use(http.get(`${API}/api/staff/*`, () => lockedOut()));
+    const { router } = renderRoute("/staff/intake");
+
+    expect(await screen.findByRole("heading", { name: "We couldn't open the staff console" })).toBeInTheDocument();
+    expect(screen.getByText("Too many wrong passcodes. Try again in 10 minutes.")).toBeInTheDocument();
+    expect(storedKey()).toBe(HARBOR_KEY);
+    expect(where(router)).toBe("/staff/intake");
   });
 });

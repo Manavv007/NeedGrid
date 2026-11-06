@@ -1,4 +1,10 @@
-import { TARGET_BUFFER_BPS, type NeedCard, type PurchasePlanRes, type PurchaseView } from "@needgrid/shared";
+import {
+  TARGET_BUFFER_BPS,
+  type NeedCard,
+  type PurchasePlanRes,
+  type PurchasePlanSummary,
+  type PurchaseView,
+} from "@needgrid/shared";
 import { Sparkles } from "lucide-react";
 import { useRef } from "react";
 import { toast } from "sonner";
@@ -18,16 +24,23 @@ type PurchasePlanCardProps = {
   /** The `proposed` purchase. */
   purchase: PurchaseView;
   /**
-   * The price check's response for this purchase, when this tab ran it. Only it carries
-   * `priceChange`, `money` and the other offers; without it the card asks for a fresh check.
+   * The price check's response for this purchase, when this tab ran it: its `priceChange` and
+   * `money`, and the only source of the other offers.
    */
   plan: PurchasePlanRes | null;
   onRecheck: () => void;
 };
 
-/** Step 1 · Approve the purchase (PurchasePlan.dc.html, NeedManageStates.dc.html "price went up"). */
+/**
+ * Step 1 · Approve the purchase (PurchasePlan.dc.html, NeedManageStates.dc.html "price went up").
+ * The price change and the money outcome come from the price check this tab ran, otherwise from the
+ * purchase's own `plan` (shared v1.1.0, recomputed by the server on every read). Without either, the
+ * card asks for a fresh check.
+ */
 export function PurchasePlanCard({ need, purchase, plan, onRecheck }: PurchasePlanCardProps) {
   const { offer } = purchase;
+  const summary: PurchasePlanSummary | null = plan ?? purchase.plan ?? null;
+  const money = summary?.money ?? null;
   return (
     <StepCard
       title="Step 1 · Approve the purchase"
@@ -58,7 +71,7 @@ export function PurchasePlanCard({ need, purchase, plan, onRecheck }: PurchasePl
             <PriceCompare
               postedCents={need.product.unitPriceCents}
               offerCents={offer.unitPriceCents}
-              priceChange={plan?.priceChange ?? null}
+              priceChange={summary?.priceChange ?? null}
             />
           ) : null}
 
@@ -81,8 +94,8 @@ export function PurchasePlanCard({ need, purchase, plan, onRecheck }: PurchasePl
         </div>
 
         <div className="flex min-w-0 flex-[1_1_300px] flex-col gap-3.5">
-          <MoneyBox need={need} purchase={purchase} money={plan?.money ?? null} />
-          <ApproveButton need={need} purchase={purchase} money={plan?.money ?? null} />
+          <MoneyBox need={need} purchase={purchase} money={money} />
+          <ApproveButton need={need} purchase={purchase} money={money} />
           {plan ? (
             <PlanAlternatives offers={plan.alternatives} defaultOpen={plan.priceChange === "pricier"} />
           ) : (

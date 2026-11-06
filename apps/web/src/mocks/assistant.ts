@@ -14,6 +14,8 @@
  * - "unfunded" / "urgent"      → list_needs, then the titles only.
  * - `?mock=assistantError`     → a few words, then `{ type: "error" }` and `done`.
  * - `?mock=assistantBadLine`   → a line that isn't JSON and one unknown event in the middle.
+ * - `?mock=realisticChat`      → every reply streams like B's real route (`asRealAssistant`): one
+ *   text delta per model step, a later step's text starting with "\n\n", B's tool summaries.
  *
  * Every stream ends with `done`. 401 without a staff key, 429 after 20 chats a minute per key.
  */
@@ -306,6 +308,57 @@ function replyFor(org: OrgPublic, text: string): Generator<Step> {
   return helpReply();
 }
 
+// ---------- ?mock=realisticChat (B's real stream, NOTES.md §19) ----------
+
+/** B's tool summaries where the scripted mock follows the design's wording instead. */
+function realSummary(tool: string, summary: string, data: unknown): string {
+  if (tool === "list_needs") return summary.replace(/^Looked up open needs/, "Looked up your needs");
+  if (tool === "propose_invoice" && summary === "Couldn't prepare the invoice") return "Couldn't prepare an invoice";
+  if (tool === "reconcile") {
+    const report = ReconcileReport.safeParse(data);
+    if (report.success) {
+      const { ok, matchedCount, mismatches } = report.data;
+      return ok
+        ? `Checked PayPal against your records · all ${plural(matchedCount, "payment matches", "payments match")}`
+        : `Checked PayPal against your records · ${plural(mismatches.length, "mismatch", "mismatches")}`;
+    }
+  }
+  return summary;
+}
+
+/**
+ * The reply as B's route streams it: B runs one model call per step, so the text of a step arrives
+ * as one delta (whole sentences) once the step is done, and a later step's text starts with "\n\n".
+ * A tool call or proposal ends a step. Tool results carry B's summaries.
+ */
+function* asRealAssistant(steps: Iterable<Step>): Generator<Step> {
+  let text = "";
+  let waitMs = 0;
+  let textSteps = 0;
+  function* endStep(): Generator<Step> {
+    if (text === "") return;
+    yield { event: { type: "text", delta: textSteps > 0 ? `\n\n${text}` : text }, waitMs };
+    textSteps += 1;
+    text = "";
+    waitMs = 0;
+  }
+  for (const step of steps) {
+    if ("event" in step && step.event.type === "text") {
+      text += step.event.delta;
+      waitMs += step.waitMs;
+      continue;
+    }
+    yield* endStep();
+    if ("event" in step && step.event.type === "tool_result") {
+      const { tool, summary, data } = step.event;
+      yield { ...step, event: { ...step.event, summary: realSummary(tool, summary, data) } };
+    } else {
+      yield step;
+    }
+  }
+  yield* endStep();
+}
+
 /**
  * An `application/x-ndjson` body that plays the reply step by step. Steps run lazily, so an action is
  * only proposed when the reply reaches it; once the browser stops reading (Stop, the page closed),
@@ -346,7 +399,8 @@ export const assistantHandlers = [
     if (!body.success) return validation(body.error);
     const last = body.data.messages.findLast((message) => message.role === "user");
     if (!last) return apiError(400, "VALIDATION", "Send at least one staff message");
-    return ndjsonResponse(replyFor(org, last.content), request.signal);
+    const reply = replyFor(org, last.content);
+    return ndjsonResponse(mockDb.isRealisticChat() ? asRealAssistant(reply) : reply, request.signal);
   }),
 
   http.get("*/api/staff/agent/actions", async ({ request }) => {

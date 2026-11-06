@@ -1,5 +1,6 @@
 import {
   CreateInvoiceArgs,
+  CreateInvoiceResult,
   formatUsd,
   SendInvoiceArgs,
   SponsorInvoiceView,
@@ -29,10 +30,15 @@ export const sendsOnApproval = (action: AgentAction) => action.tool === "send_in
 /** "Approve and send" for a create_invoice that is sent on approval (`send` missing or true), else "Approve". */
 export const approveLabel = (action: AgentAction) => (createSends(action) ? "Approve and send" : "Approve");
 
-/** The executed invoice in `result`, when it is one (`SponsorInvoiceView`, nothing hand-checked). */
+/**
+ * The executed invoice in `result`: A's `CreateInvoiceResult` (`{ sponsorInvoice }`, shared v1.1.0),
+ * or a bare `SponsorInvoiceView`. Nothing hand-checked; anything else → null (then `matchInvoice`).
+ */
 export function invoiceFromResult(action: AgentAction): SponsorInvoiceView | null {
-  const parsed = SponsorInvoiceView.safeParse(action.result);
-  return parsed.success ? parsed.data : null;
+  const wrapped = CreateInvoiceResult.safeParse(action.result);
+  if (wrapped.success) return wrapped.data.sponsorInvoice;
+  const bare = SponsorInvoiceView.safeParse(action.result);
+  return bare.success ? bare.data : null;
 }
 
 /**
