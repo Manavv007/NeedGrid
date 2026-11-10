@@ -98,7 +98,11 @@ export function MatchMeBox() {
   }
 
   return (
-    <section aria-labelledby={titleId} className="mx-auto flex w-full max-w-300 flex-col gap-6 px-4 py-12 sm:px-6">
+    <section
+      id="match"
+      aria-labelledby={titleId}
+      className="mx-auto flex w-full max-w-300 scroll-mt-16 flex-col gap-6 px-4 py-12 sm:px-6"
+    >
       <div className="flex flex-col gap-4 rounded-2xl bg-staff-header p-5 text-primary-foreground sm:p-7">
         <div>
           <h2 id={titleId} className="mb-1.5 text-[22px] font-extrabold tracking-[-0.02em] sm:text-[26px]">

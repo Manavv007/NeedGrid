@@ -52,7 +52,7 @@ describe("Org flyer /o/:slug/flyer", () => {
     expect(qrData(/^QR code: scan to see what Harbor Food Bank needs/)).toBe(qrPath(wall).d);
     expect(screen.getByText("Scan to fund an item")).toBeInTheDocument();
     expect(screen.getByText(`${window.location.host}${HARBOR}`)).toBeInTheDocument();
-    expect(screen.getByText("Sandbox demo, no real money")).toBeInTheDocument();
+    expect(screen.queryByText(/sandbox/i)).not.toBeInTheDocument();
   });
 
   it("Print calls window.print; Back goes to the tile wall; the paper toggle sets @page", async () => {

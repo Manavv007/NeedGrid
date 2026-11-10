@@ -16,7 +16,7 @@ export function OrgList() {
     <section
       id="orgs"
       aria-labelledby="orgs-title"
-      className="mx-auto w-full max-w-300 scroll-mt-4 px-4 pt-11 pb-14 sm:px-6"
+      className="mx-auto w-full max-w-300 scroll-mt-16 px-4 pt-11 pb-14 sm:px-6"
     >
       <h2 id="orgs-title" className="mb-5 text-2xl font-extrabold tracking-[-0.02em]">
         Charities on NeedGrid

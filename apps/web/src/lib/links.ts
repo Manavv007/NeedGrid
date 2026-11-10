@@ -1,5 +1,16 @@
 /** In-app URLs for public pages, so every link to a charity or a need is built the same way. */
 
+/** The project's public repository (footer "Source code"). */
+export const GITHUB_REPO_URL = "https://github.com/Manavv007/NeedGrid";
+
+/** The repository README on GitHub: it lists the demo PayPal buyer and staff logins. */
+export const README_URL = `${GITHUB_REPO_URL}#readme`;
+
+/** Landing-page sections the site header and footer link to. */
+export const LANDING_ORGS = { pathname: "/", hash: "#orgs" } as const;
+export const LANDING_HOW_IT_WORKS = { pathname: "/", hash: "#how-it-works" } as const;
+export const LANDING_MATCH = { pathname: "/", hash: "#match" } as const;
+
 export function orgPath(slug: string): string {
   return `/o/${encodeURIComponent(slug)}`;
 }

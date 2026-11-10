@@ -164,7 +164,7 @@ export function StaffLoginPage() {
 
           <details className="mt-5 text-sm">
             <summary className="flex min-h-11 cursor-pointer items-center font-medium text-primary">
-              Demo passcodes (sandbox only)
+              Demo staff logins
             </summary>
             <ul className="mt-1 flex flex-col gap-1 text-soft">
               {DEMO_PASSCODES.map((demo) => (

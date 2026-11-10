@@ -141,6 +141,16 @@ Tailwind: `bg-category-food-bg text-category-food-text`, and so on. Printed flye
 - "Not switched on yet" notice (a staff list whose server route doesn't exist yet, `ErrorState tone="notice"`): a
   `--badge-low-bg` / `--badge-low-text` clock icon instead of the red alert icon, `role="status"`.
 
+## Used in C-13 (public site header and footer): no new tokens
+
+- Header: sticky, `--surface` at 95% with a light backdrop blur, `--border` bottom border, 64 px tall. Nav links
+  `--text-soft`, hover `--text`; the current page (`aria-current="page"`) is `--text` and bold, so it never relies on
+  colour alone. "Give an item" is the primary button. Phone menu panel: `--surface`, 48 px links, the current page on
+  `--primary-soft` with `--primary` text. `theme-color` in `index.html` is `--primary` (`#0F766E`).
+- Landing sections the header links to (`#orgs`, `#how-it-works`, `#match`) and `#main` have `scroll-mt-16`, so the
+  sticky header doesn't cover them; the need page's sticky donate column sits at `top-22` for the same reason.
+- Footer: `--surface` with a `--border` top border; column headings `--text`, links `--text-soft`, small print `--muted`.
+
 ## Status badges (background / text)
 
 | Status | Background | Text | CSS variables |

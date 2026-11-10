@@ -57,7 +57,12 @@ describe("Need page /o/:slug/n/:needId", () => {
       "aria-valuenow",
       "7000",
     );
-    expect(within(panel).getByText("PayPal sandbox: use the demo buyer login from the README.")).toBeInTheDocument();
+    const helper = within(panel).getByText(/^Testing\? Use the demo PayPal login in our/);
+    expect(helper).toHaveTextContent("Testing? Use the demo PayPal login in our README.");
+    const readme = within(helper).getByRole("link", { name: "README (opens in a new tab)" });
+    expect(readme).toHaveAttribute("href", "https://github.com/Manavv007/NeedGrid#readme");
+    expect(readme).toHaveAttribute("target", "_blank");
+    expect(readme).toHaveAttribute("rel", "noopener noreferrer");
     // Tests run with mocks off and no PayPal client id.
     expect(within(panel).getByText("Payments aren't set up yet.")).toBeInTheDocument();
 

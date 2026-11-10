@@ -2,8 +2,10 @@ import { Check } from "lucide-react";
 import { Link } from "react-router";
 import { ProductPhoto } from "@/components/ProductPhoto";
 import { Button } from "@/components/ui/button";
+import { formatUsdWhole } from "@/lib/format";
+import { useOrgs } from "@/lib/queries";
 
-/** Landing hero: the hook line, one-line explainer, two calls to action (Landing.dc.html). */
+/** Landing hero: the hook line, one-line explainer, two calls to action, live totals (Landing.dc.html). */
 export function Hero() {
   return (
     <section className="mx-auto flex w-full max-w-300 flex-wrap items-center gap-12 px-4 pt-10 pb-12 sm:px-6 sm:pt-14">
@@ -22,9 +24,41 @@ export function Hero() {
             <Link to="/dashboard">See the impact</Link>
           </Button>
         </div>
+        <HeroStats />
       </div>
       <HeroArt />
     </section>
+  );
+}
+
+const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
+
+/**
+ * "$X raised · N items delivered · 3 charities", from the charity list the page loads anyway (same
+ * query as the list below, so no extra request). Display only: shown once that list has loaded.
+ */
+function HeroStats() {
+  const orgs = useOrgs();
+  if (!orgs.isSuccess || orgs.data.orgs.length === 0) return null;
+  const list = orgs.data.orgs;
+  const raisedCents = list.reduce((sum, org) => sum + org.stats.raisedCents, 0);
+  const delivered = list.reduce((sum, org) => sum + org.stats.itemsDelivered, 0);
+  return (
+    <p className="mt-6 text-[15px] leading-relaxed text-soft">
+      <span className="whitespace-nowrap">
+        <strong className="text-foreground">{formatUsdWhole(raisedCents)}</strong> raised
+      </span>{" "}
+      <span aria-hidden="true">·</span>{" "}
+      <span className="whitespace-nowrap">
+        <strong className="text-foreground">{delivered.toLocaleString("en-US")}</strong>{" "}
+        {plural(delivered, "item", "items")} delivered
+      </span>{" "}
+      <span aria-hidden="true">·</span>{" "}
+      <span className="whitespace-nowrap">
+        <strong className="text-foreground">{list.length.toLocaleString("en-US")}</strong>{" "}
+        {plural(list.length, "charity", "charities")}
+      </span>
+    </p>
   );
 }
 
