@@ -103,7 +103,7 @@ describe("Staff login /staff/login", () => {
 
   it("lists the three demo passcodes in a collapsible note", async () => {
     renderRoute("/staff/login");
-    const summary = await screen.findByText("Demo passcodes (sandbox only)");
+    const summary = await screen.findByText("Demo staff logins");
     expect(summary.closest("details")).not.toHaveAttribute("open");
     expect(screen.getByText("harbor-demo-2026")).toBeInTheDocument();
     expect(screen.getByText("paws-demo-2026")).toBeInTheDocument();

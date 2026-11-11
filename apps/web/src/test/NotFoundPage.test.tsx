@@ -7,7 +7,8 @@ describe("Not found page", () => {
     renderRoute("/this/does/not/exist");
     expect(await screen.findByRole("heading", { name: "This page isn't here" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Go to NeedGrid" })).toHaveAttribute("href", "/");
-    expect(screen.getByText("Sandbox demo, no real money")).toBeInTheDocument();
+    expect(screen.getByRole("contentinfo")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
   });
 
   it("renders for unknown staff URLs too", async () => {

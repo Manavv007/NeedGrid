@@ -138,7 +138,7 @@ function NeedView({ detail }: { detail: NeedDetailRes }) {
         {panelInColumn || !showPanel ? (
           <aside
             aria-label={showPanel ? "Donate" : "What happens next"}
-            className="flex min-w-0 flex-col gap-4 md:sticky md:top-6 md:col-start-2 md:row-span-2 md:row-start-1 md:self-start"
+            className="flex min-w-0 flex-col gap-4 md:sticky md:top-22 md:col-start-2 md:row-span-2 md:row-start-1 md:self-start"
           >
             {panelInColumn ? (
               <DonatePanel need={need} focusOnMount={cameToDonate} onPhaseChange={setPhase} />

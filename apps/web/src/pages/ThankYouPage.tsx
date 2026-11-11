@@ -114,9 +114,7 @@ function ThankYou({ token, impact }: { token: string; impact: ImpactRes }) {
       <Button asChild size="lg" variant="outline">
         <Link to={orgSlug ? orgPath(orgSlug) : { pathname: "/", hash: "#orgs" }}>Fund another item</Link>
       </Button>
-      <p className="mt-1 text-center text-xs leading-normal text-muted-foreground">
-        This page is not a tax receipt. PayPal sandbox demo.
-      </p>
+      <p className="mt-1 text-center text-xs leading-normal text-muted-foreground">This page is not a tax receipt.</p>
     </div>
   );
 }

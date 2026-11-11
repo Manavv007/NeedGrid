@@ -53,7 +53,11 @@ function serveImpact(impact: ImpactRes) {
   server.use(http.get(IMPACT_ROUTE, () => HttpResponse.json(ImpactRes.parse(impact))));
 }
 
-const headings = () => screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+// Headings in the page itself (the site footer has its own column headings).
+const headings = () =>
+  within(screen.getByRole("main"))
+    .getAllByRole("heading", { level: 2 })
+    .map((h) => h.textContent);
 const card = (title: string) => screen.getByRole("article", { name: title });
 /** A StatusBadge (the timeline's stage labels use the same words, but aren't pills). */
 const badge = (container: HTMLElement, label: string) =>

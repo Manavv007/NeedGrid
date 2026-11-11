@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ProgressBar } from "@/components/ProgressBar";
 import { Button } from "@/components/ui/button";
 import { formatDonorCount, formatLeft, formatUsd } from "@/lib/format";
+import { README_URL } from "@/lib/links";
 import { cn } from "@/lib/utils";
 import { AmountPicker } from "./AmountPicker";
 import { checkoutKind } from "./checkout";
@@ -95,7 +96,17 @@ export function DonatePanel({
             />
             {openOrder ? <HoldNote order={openOrder} /> : null}
             <p className="text-center text-xs text-muted-foreground">
-              PayPal sandbox: use the demo buyer login from the README.
+              Testing? Use the demo PayPal login in our{" "}
+              <a
+                href={README_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="README (opens in a new tab)"
+                className="underline underline-offset-2"
+              >
+                README
+              </a>
+              .
             </p>
           </div>
         </div>

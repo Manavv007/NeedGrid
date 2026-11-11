@@ -18,7 +18,7 @@ type FlyerQrProps = {
   caption: string;
 };
 
-/** The big QR code at the foot of a flyer, with the address in words and the sandbox note. */
+/** The big QR code at the foot of a flyer, with the address in words. */
 export function FlyerQr({ url, label, caption }: FlyerQrProps) {
   return (
     <div className="mt-auto flex flex-col items-center gap-5 border-t-2 border-foreground pt-6 sm:flex-row sm:gap-8 sm:pt-7">
@@ -26,7 +26,6 @@ export function FlyerQr({ url, label, caption }: FlyerQrProps) {
       <div className="flex min-w-0 flex-col gap-2.5 text-center sm:text-left">
         <p className="text-[26px] leading-[1.1] font-extrabold sm:text-[26pt]">{caption}</p>
         <p className="text-[15px] break-all sm:text-[13pt]">{shortUrl(url)}</p>
-        <p className="text-[13px] sm:text-[11pt]">Sandbox demo, no real money</p>
       </div>
     </div>
   );

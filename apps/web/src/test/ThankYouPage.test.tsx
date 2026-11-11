@@ -31,7 +31,7 @@ describe("Thank-you page /thanks/:token", () => {
         "“Diapers, size 3” only needed $14.00, so the rest went to the next most urgent item, as you agreed at checkout.",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText("This page is not a tax receipt. PayPal sandbox demo.")).toBeInTheDocument();
+    expect(screen.getByText("This page is not a tax receipt.")).toBeInTheDocument();
   });
 
   it("links to the impact page and back to the charity's tile wall", async () => {
