@@ -12,6 +12,7 @@ Built for the PayPal AI Hackathon. **PayPal sandbox only: no real money moves.**
 | What | Where |
 |---|---|
 | Web app | https://needgrid-web.onrender.com |
+| Demo video (under 3 min) | https://youtu.be/tn0gaSTR54s |
 | API health | https://needgrid-api.onrender.com/api/health |
 | A charity's tile wall | https://needgrid-web.onrender.com/o/harbor-food-bank |
 | Staff console | https://needgrid-web.onrender.com/staff/login (or click **Try the staff console**) |
@@ -31,8 +32,8 @@ The API runs on Render; after a quiet spell the first request can take up to a m
 
 **Sandbox donor (PayPal buyer) account:** use it to pay in the PayPal popup and to pay sponsor invoices.
 
-- Email: `<SANDBOX BUYER EMAIL>`
-- Password: `<SANDBOX BUYER PASSWORD>`
+- Email: `sb-yhcqc53715581@personal.example.com`
+- Password: `)uJ8gF<?`
 
 This is a PayPal **sandbox** account with test money. It must be a **US** account: PayPal blocks Indian sandbox
 accounts from paying USD invoices (`INR_FOREIGN_CURRENCY_BLOCKED`).
@@ -47,7 +48,7 @@ accounts from paying USD invoices (`INR_FOREIGN_CURRENCY_BLOCKED`).
    surplus moves to the most urgent open item; if pricier, the tile asks donors for the gap.
 4. **Delivery.** On an ordered need, upload an arrival photo and click **Check delivery**. AI checks it matches the
    product; donors see it on their impact page.
-5. **Assistant.** Ask: *"Invoice Acme Hardware at <buyer email> for the two most urgent items."* An approval card shows
+5. **Assistant.** Ask: *"Invoice Acme Hardware at sb-yhcqc53715581@personal.example.com for the two most urgent items."* An approval card shows
    every amount (computed by NeedGrid, never by the AI). Approve it, open the pay link in a private window and pay as
    the sandbox buyer. Within a minute the tiles turn **Funded**. Also try *"Reconcile the last 7 days."*
 
@@ -117,7 +118,7 @@ Webhooks need a public URL: register `https://<your tunnel>/api/webhooks/paypal`
 
 ## Team and repo docs
 
-Three people, each working with a coding agent: **A** payments and backend, **B** AI and data, **C** frontend and demo.
+Two people, each working with a coding agent, split across three roles: **A** payments and backend, **B** AI and data, **C** frontend and demo.
 `NEEDGRID_DEV_PLAN.md` is the plan; `AGENT_*.md` are the per-person briefs; `NOTES.md` records decisions and lessons
 (PayPal sandbox quirks included); `HANDOFF.md` holds requests between owners.
 
